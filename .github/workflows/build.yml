@@ -7,19 +7,24 @@ on:
 
 jobs:
   build:
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-latest
     
     steps:
     - name: Checkout User Repo
       uses: actions/checkout@v4
 
-    - name: Clone Official Cemu Repo
+    - name: Clone Cemu Android Repo
       run: |
-        git clone --recursive https://github.com/cemu-project/Cemu.git Cemu
+        git clone --recursive -b android-port https://github.com/SapphireRhodonite/Cemu.git Cemu
 
-    - name: Modify Application ID
+    - name: Find and Modify Application ID
       run: |
-        sed -i 's/applicationId = ".*"/applicationId = "com.cemu.aimod"/g' Cemu/src/android/app/build.gradle.kts
+        BUILD_FILE=$(find Cemu -name "build.gradle.kts" -path "*/app/*" | head -n 1)
+        if [ -z "$BUILD_FILE" ]; then
+          echo "ERRORE: File di build non trovato!"
+          exit 1
+        fi
+        sed -i 's/applicationId = ".*"/applicationId = "com.cemu.aimod"/g' "$BUILD_FILE"
 
     - name: Install system dependencies
       run: |
@@ -35,16 +40,15 @@ jobs:
     - name: Setup Android SDK
       uses: android-actions/setup-android@v3
 
-    - name: Grant execute permission for gradlew
-      run: chmod +x Cemu/src/android/gradlew
-
     - name: Build APK with Gradle
       run: |
-        cd Cemu/src/android
+        GRADLEW_FILE=$(find Cemu -name "gradlew" | head -n 1)
+        cd $(dirname "$GRADLEW_FILE")
+        chmod +x gradlew
         ./gradlew assembleDebug
 
     - name: Upload APK
       uses: actions/upload-artifact@v4
       with:
         name: Cemu-AI-Mod-APK
-        path: Cemu/src/android/app/build/outputs/apk/debug/*.apk
+        path: Cemu/**/build/outputs/apk/debug/*.apk
