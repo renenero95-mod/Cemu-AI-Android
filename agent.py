@@ -1,72 +1,55 @@
 import os
 import sys
+import subprocess
 from google import genai
 from google.genai import types
 
-# ATTENZIONE: Inserisci la tua API Key tra le virgolette qui sotto
+# La chiave API verrà inserita automaticamente dal comando successivo
 API_KEY = "AQ.Ab8RN6KkWC67JCU_Mez2dptUrJy9HnJf3MK53y__wnK5S2RYQg"
-
 client = genai.Client(api_key=API_KEY)
 
-def modifica_file_con_ai(filepath, istruzioni):
-    print("\n--- Analisi del file: " + filepath + " ---")
+def pianifica_e_modifica(filepath):
+    print(f"\n--- 🧠 Fase 1: Pianificazione per {filepath} ---")
+    with open(filepath, 'r', encoding='utf-8') as f:
+        codice_originale = f.read()
+
+    prompt_piano = f"Sei un esperto sviluppatore C++ per Cemu (Android). Analizza questo codice e scrivi un breve piano (max 3 righe) su come ottimizzarlo per Snapdragon 8 Gen 2. Sii specifico su cosa cambiare:\n\n{codice_originale}"
     
+    risposta_piano = client.models.generate_content(
+        model="gemini-3.5-flash-lite", contents=prompt_piano
+    )
+    print(f"📝 Piano dell'AI:\n{risposta_piano.text}\n")
+
+    print("--- 💻 Fase 2: Scrittura del Codice ---")
+    prompt_codice = f"Applica il seguente piano al codice sorgente. Restituisci SOLO il codice C++ modificato, senza spiegazioni, senza markdown, senza backtick.\n\nPIANO:\n{risposta_piano.text}\n\nCODICE ORIGINALE:\n{codice_originale}"
+    
+    risposta_codice = client.models.generate_content(
+        model="gemini-3.5-flash-lite", contents=prompt_codice
+    )
+    
+    codice_modificato = risposta_codice.text.strip()
+    if codice_modificato.startswith("```"):
+        codice_modificato = "\n".join(codice_modificato.split("\n")[1:])
+    if codice_modificato.endswith("```"):
+        codice_modificato = "\n".join(codice_modificato.split("\n")[:-1])
+
+    file_temp = filepath + ".temp"
+    with open(file_temp, 'w', encoding='utf-8') as f:
+        f.write(codice_modificato)
+
+    print("--- 📦 Fase 3: Generazione della Patch per GitHub ---")
     try:
-        with open(filepath, 'r', encoding='utf-8') as f:
-            codice_originale = f.read()
+        with open("patch.diff", "w") as f:
+            subprocess.run(["git", "diff", "--no-index", filepath, file_temp], stdout=f)
+        
+        os.replace(file_temp, filepath)
+        print(f"✅ Fatto! File modificato e 'patch.diff' generato.")
+        print("⚠️ Ricordati di inviare la patch a GitHub con: git add patch.diff && git commit -m 'AI Patch' && git push origin main")
     except Exception as e:
-        print("Errore nella lettura del file: " + str(e))
-        return
-
-    # Prepariamo il testo per Gemini in modo pulito
-    prompt = "Sei un esperto sviluppatore C++ e Android.\n"
-    prompt += "Ti sto fornendo il codice sorgente di un file dell'emulatore Cemu per Android.\n"
-    prompt += "Il mio obiettivo e ottimizzarlo per uno smartphone con Snapdragon 8 Gen 2 e GPU Adreno 740.\n\n"
-    prompt += "Istruzioni specifiche: " + istruzioni + "\n\n"
-    prompt += "Ecco il codice da analizzare:\n"
-    prompt += "--------------------\n"
-    prompt += codice_originale + "\n"
-    prompt += "--------------------\n\n"
-    prompt += "Restituisci ESATTAMENTE E SOLO il codice modificato, pronto per essere compilato.\n"
-    prompt += "Non aggiungere commenti discorsivi, non usare i blocchi markdown e non spiegare cosa hai fatto. Restituisci solo il testo del file aggiornato."
-
-    print("In attesa della risposta di Gemini (potrebbe volerci qualche secondo)...")
-    try:
-        response = client.models.generate_content(
-            model="gemini-3.5-flash-lite",
-            contents=prompt,
-            config=types.GenerateContentConfig(temperature=0.1)
-        )
-        
-        codice_modificato = response.text.strip()
-        
-        # Pulizia di sicurezza se l'AI inserisce i backtick per errore
-        if codice_modificato.startswith("```"):
-            codice_modificato = codice_modificato[3:]
-        if codice_modificato.startswith("cpp"):
-            codice_modificato = codice_modificato[3:]
-        if codice_modificato.endswith("```"):
-            codice_modificato = codice_modificato[:-3]
-
-        # Creiamo un backup del file originale
-        backup_path = filepath + ".bak"
-        os.rename(filepath, backup_path)
-        
-        # Salviamo il nuovo codice
-        with open(filepath, 'w', encoding='utf-8') as f:
-            f.write(codice_modificato.strip())
-            
-        print("✅ Successo! File modificato. (Backup salvato in " + backup_path + ")")
-
-    except Exception as e:
-        print("❌ Errore durante la chiamata a Gemini: " + str(e))
+        print(f"❌ Errore nella creazione della patch: {e}")
 
 if __name__ == "__main__":
     if len(sys.argv) < 2:
         print("Uso: python agent.py <percorso_del_file>")
         sys.exit(1)
-        
-    percorso_file = sys.argv[1]
-    istruzioni = "Ottimizza questo codice per ridurre l'uso della CPU. Cerca colli di bottiglia."
-    
-    modifica_file_con_ai(percorso_file, istruzioni)
+    pianifica_e_modifica(sys.argv[1])

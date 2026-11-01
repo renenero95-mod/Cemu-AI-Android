@@ -1,0 +1,66 @@
+[22:35:29.007] ------- Init Cemu 8759323e -------
+[22:35:29.007] Init Wii U memory space (base: 0x0000007600000000)
+[22:35:29.007] mlc01 path: /storage/emulated/0/Android/data/com.cemu.aimod.debug/files/mlc01
+[22:35:29.007] CPU: QTI, SM8550
+[22:35:29.007] RAM: 11197MB
+[22:35:29.007] Platform: Android (API level 34)
+[22:35:29.007] Used CPU extensions: 
+[22:35:29.023] IOSU_CRYPTO: No otp.bin found. Online mode cannot be used
+[22:35:29.023] IOSU_CRYPTO: No Seeprom.bin found. Online mode cannot be used
+[22:38:23.570] Mounting title 0005000010140500
+[22:38:23.570] Base: content://com.android.externalstorage.documents/tree/primary%3AWiiU/document/primary%3AWiiU/Watch_Dogs%20(Europe)%20(En%2CFr%2CDe%2CEs%2CIt%2CNl%2CPt%2CRu).wua [WUA] [0000000000000000_v0]
+[22:38:23.602] Update: Not present
+[22:38:23.602] DLC: Not present
+[22:38:23.625] COS: System fonts found. Generated shareddata (26609KB)
+[22:38:23.640] Recompiler initialized
+[22:38:23.796] ------- Init Vulkan graphics backend -------
+[22:38:23.800] Vulkan instance version: 1.3
+[22:38:23.809] Using GPU: Adreno (TM) 740
+[22:38:23.809] Driver version: Driver Build: 7b26bdd942, Iab69c31769, 1693222181
+[22:38:23.809] Vulkan: present_wait extension: unsupported
+[22:38:23.811] Vulkan device memory info:
+[22:38:23.811] Heap 0 - Size 11197MB Flags 0x00000001
+[22:38:23.833] Vulkan: Can't find immediate present mode
+[22:38:28.805] Load /internal/current_title/code/duniademo.rpx Code-Offset: -0x0
+[22:38:29.200] ------- Loaded title -------
+[22:38:29.200] TitleId: 00050000-10140500
+[22:38:29.200] TitleVersion: v0
+[22:38:29.200] TitleRegion: EU
+[22:38:29.200] Save path:   /storage/emulated/0/Android/data/com.cemu.aimod.debug/files/mlc01/usr/save/00050000/10140500/user/ (not present)
+[22:38:29.200] Shader cache file: shaderCache/transferable/0005000010140500.bin
+[22:38:29.200] gameprofile path:  (not present)
+[22:38:29.200] RPX hash (updated): 3f9716ab
+[22:38:29.200] RPX hash (base): 3f9716ab
+[22:38:30.316] Loaded module 'duniademo' with checksum 0x1ac7e563
+[22:38:30.316] RPL link time: 1116ms
+[22:38:31.098] HLE scan time: 782ms
+[22:38:31.098] ------- Active settings -------
+[22:38:31.098] CPU-Mode: Multi-core recompiler
+[22:38:31.098] Load shared libraries: true
+[22:38:31.098] Use precompiled shaders: auto
+[22:38:31.098] Full sync at GX2DrawDone: true
+[22:38:31.098] Strict shader mul: true
+[22:38:31.098] Async compile: true
+[22:38:31.098] Console language: 1
+[22:38:31.978] ------- Activate graphic packs -------
+[22:38:31.978] ------- Init Audio backend -------
+[22:38:31.978] DirectSound: not supported
+[22:38:31.978] XAudio 2.8: not supported
+[22:38:31.978] XAudio 2.7: not supported
+[22:38:31.978] Cubeb: available
+[22:38:31.978] ------- Init Audio input backend -------
+[22:38:31.978] Cubeb: available
+[22:38:31.978] ------- Run title -------
+Error: signal 11:
+ 0# handlerDumpingSignal(int, siginfo*, void*) in /data/app/~~bZhkl9trrG1SzCUKYgdV1A==/com.cemu.aimod.debug-Yl4lEFXQDEVoBCb-9bdQYg==/lib/arm64/libCemuAndroid.so
+ 1# art::SignalChain::Handler(int, siginfo*, void*) in /apex/com.android.art/lib64/libsigchain.so
+ 2# __kernel_rt_sigreturn in [vdso]
+ 3# PPCItpCafeOSUsermode::ppcMem_readDataU32(PPCInterpreter_t*, unsigned int) in /data/app/~~bZhkl9trrG1SzCUKYgdV1A==/com.cemu.aimod.debug-Yl4lEFXQDEVoBCb-9bdQYg==/lib/arm64/libCemuAndroid.so
+ 4# PPCInterpreterContainer<PPCItpCafeOSUsermode>::PPCInterpreter_LWZ(PPCInterpreter_t*, unsigned int) in /data/app/~~bZhkl9trrG1SzCUKYgdV1A==/com.cemu.aimod.debug-Yl4lEFXQDEVoBCb-9bdQYg==/lib/arm64/libCemuAndroid.so
+ 5# PPCInterpreterContainer<PPCItpCafeOSUsermode>::executeInstruction(PPCInterpreter_t*) in /data/app/~~bZhkl9trrG1SzCUKYgdV1A==/com.cemu.aimod.debug-Yl4lEFXQDEVoBCb-9bdQYg==/lib/arm64/libCemuAndroid.so
+ 6# PPCInterpreterSlim_executeInstruction(PPCInterpreter_t*) in /data/app/~~bZhkl9trrG1SzCUKYgdV1A==/com.cemu.aimod.debug-Yl4lEFXQDEVoBCb-9bdQYg==/lib/arm64/libCemuAndroid.so
+ 7# coreinit::__OSFiberThreadEntry(void*) in /data/app/~~bZhkl9trrG1SzCUKYgdV1A==/com.cemu.aimod.debug-Yl4lEFXQDEVoBCb-9bdQYg==/lib/arm64/libCemuAndroid.so
+ 8# Fiber::Start(boost::context::detail::transfer_t) in /data/app/~~bZhkl9trrG1SzCUKYgdV1A==/com.cemu.aimod.debug-Yl4lEFXQDEVoBCb-9bdQYg==/lib/arm64/libCemuAndroid.so
+Game: WATCH_DOGS
+TitleId: 0005000010140500
+RPXHash: 3f9716ab (Update: 3f9716ab)

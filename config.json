@@ -1,0 +1,11 @@
+{
+    "api_key": "AQ.Ab8RN6KkWC67JCU_Mez2dptUrJy9HnJf3MK53y__wnK5S2RYQg",
+    "model": "gemini-3.5-flash",
+    "fallback_models": [
+        "gemini-3.6-flash",
+        "gemini-3.7-flash",
+        "gemini-3.8-flash",
+        "gemini-flash-latest",
+        "gemini-2.5-flash"
+    ]
+}
