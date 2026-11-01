@@ -1,0 +1,817 @@
+diff --git a/src/Cafe/OS/libs/coreinit/coreinit_Thread.cpp b/src/Cafe/OS/libs/coreinit/coreinit_Thread.cpp.temp
+index 7c7571f6..1e9e4394 100644
+--- a/src/Cafe/OS/libs/coreinit/coreinit_Thread.cpp
++++ b/src/Cafe/OS/libs/coreinit/coreinit_Thread.cpp.temp
+@@ -23,6 +23,10 @@
+ #endif
+ #endif
+ 
++#ifdef __ANDROID__
++#include <sched.h>
++#endif
++
+ namespace {
+ 
+ void enableFlushDenormalsToZero()
+@@ -42,9 +46,23 @@ void enableFlushDenormalsToZero()
+ 
+ }
+ 
+-SlimRWLock srwlock_activeThreadList;
++class AtomicRWLock {
++	std::atomic<int32_t> m_lock{0};
++public:
++	void LockWrite() {
++		int32 expected = 0;
++		while (!m_lock.compare_exchange_weak(expected, -1, std::memory_order_relaxed, std::memory_order_relaxed)) {
++			expected = 0;
++			sched_yield();
++		}
++	}
++	void UnlockWrite() {
++		m_lock.store(0, std::memory_order_relaxed);
++	}
++};
++
++AtomicRWLock srwlock_activeThreadList;
+ 
+-// public list of active threads
+ MPTR activeThread[256];
+ sint32 activeThreadCount = 0;
+ 
+@@ -63,12 +81,11 @@ namespace coreinit
+ 
+ namespace coreinit
+ {
+-	// scheduler state
+-	std::atomic<bool> sSchedulerActive;
++	std::atomic<bool> sSchedulerActive{false};
+ 	std::vector<std::thread> sSchedulerThreads;
+-	std::mutex sSchedulerStateMtx;
++	std::atomic<bool> sSchedulerStateFlag{false};
+ 
+-	SysAllocator<OSThreadQueue> g_activeThreadQueue; // list of all threads (can include non-detached inactive threads)
++	SysAllocator<OSThreadQueue> g_activeThreadQueue; 
+ 
+ 	SysAllocator<OSThreadQueue, 3> g_coreRunQueue;
+ 	CounterSemaphore g_coreRunQueueThreadCount[3];
+@@ -78,7 +95,7 @@ namespace coreinit
+ 	thread_local uint32 t_assignedCoreIndex;
+ 	thread_local Fiber* t_schedulerFiber;
+ 
+-	struct OSHostThread
++	struct alignas(128) OSHostThread
+ 	{
+ 		OSHostThread(OSThread_t* thread) : m_thread(thread), m_fiber((void(*)(void*))__OSFiberThreadEntry, this, this)
+ 		{
+@@ -88,7 +105,6 @@ namespace coreinit
+ 
+ 		OSThread_t* m_thread;
+ 		Fiber m_fiber;
+-		// padding (used as stack memory in recompiler)
+ 		uint8  padding[1024 * 128];
+ 		PPCInterpreter_t ppcInstance;
+ 		uint32 selectedCore;
+@@ -137,8 +153,6 @@ namespace coreinit
+ 		return g_isMulticoreMode;
+ 	}
+ 
+-	// create host thread (fiber) that will be used to run the PPC instance
+-	// note that host threads are fibers and not actual threads
+ 	void __OSCreateHostThread(OSThread_t* thread)
+ 	{
+ 		cemu_assert_debug(__OSHasSchedulerLock());
+@@ -148,7 +162,6 @@ namespace coreinit
+ 		s_threadToFiber.emplace(thread, hostThread);
+ 	}
+ 
+-	// delete host thread
+ 	void __OSDeleteHostThread(OSThread_t* thread)
+ 	{
+ 		static OSHostThread* _deleteQueue = nullptr;
+@@ -160,21 +173,17 @@ namespace coreinit
+ 			_deleteQueue = nullptr;
+ 		}
+ 
+-		// delete with a delay (using queue of length 1)
+-		// since the fiber might still be in use right now we have to delay the deletion
+-
+ 		auto hostThread = s_threadToFiber[thread];
+ 		s_threadToFiber.erase(thread);
+ 		_deleteQueue = hostThread;
+ 	}
+ 
+ 
+-	// add thread to active queue
+ 	void __OSActivateThread(OSThread_t* thread)
+ 	{
+ 		cemu_assert_debug(__OSHasSchedulerLock());
+ 
+-		g_activeThreadQueue->addThread(thread, &thread->activeThreadChain); // todo - check if thread already in queue
++		g_activeThreadQueue->addThread(thread, &thread->activeThreadChain); 
+ 
+ 		MPTR threadMPTR = memory_getVirtualOffsetFromPointer(thread);
+ 
+@@ -184,7 +193,7 @@ namespace coreinit
+ 		{
+ 			if (activeThread[i] == threadMPTR)
+ 			{
+-				cemu_assert_debug(false); // should not happen
++				cemu_assert_debug(false); 
+ 				alreadyActive = true;
+ 			}
+ 		}
+@@ -199,12 +208,10 @@ namespace coreinit
+ 		srwlock_activeThreadList.UnlockWrite();
+ 	}
+ 
+-	// remove thread from active queue. Reset id and state
+ 	void __OSDeactivateThread(OSThread_t* thread)
+ 	{
+ 		cemu_assert_debug(__OSHasSchedulerLock());
+ 
+-		// remove thread from active thread list
+ 		MPTR t = memory_getVirtualOffsetFromPointer(thread);
+ 		srwlock_activeThreadList.LockWrite();
+ 		bool noHit = true;
+@@ -221,7 +228,7 @@ namespace coreinit
+ 		cemu_assert_debug(noHit == false);
+ 		srwlock_activeThreadList.UnlockWrite();
+ 		
+-		g_activeThreadQueue->removeThread(thread, &thread->activeThreadChain); // todo - check if thread in queue
++		g_activeThreadQueue->removeThread(thread, &thread->activeThreadChain); 
+ 		
+ 		cemu_assert_debug(thread->state == OSThread_t::THREAD_STATE::STATE_NONE);
+ 		thread->id = 0x8000;
+@@ -247,7 +254,6 @@ namespace coreinit
+ 		return false;
+ 	}
+ 
+-	// thread
+ 	OSThread_t* __currentCoreThread[3] = {};
+ 
+ 	void OSSetCurrentThread(uint32 coreIndex, OSThread_t* thread)
+@@ -271,14 +277,10 @@ namespace coreinit
+ 		uint32 r4 = hCPU->gpr[4];
+ 		uint32 lr = hCPU->spr.LR;
+ 
+-		// cpp exception init callback
+-		//const uint32 im = OSDisableInterrupts(); -> on an actual Wii U interrupts are disabled for this callback, but there are games that yield the thread in the callback (see Angry Birds Star Wars)
+ 		if (gCoreinitData->__cpp_exception_init_ptr != MPTR_NULL)
+ 		{
+ 			PPCCoreCallback(_swapEndianU32(gCoreinitData->__cpp_exception_init_ptr), &currentThread->crt.eh_globals);
+ 		}
+-		//OSRestoreInterrupts(im);
+-		// forward to thread entrypoint
+ 		hCPU->spr.LR = lr;
+ 		hCPU->gpr[3] = r3;
+ 		hCPU->gpr[4] = r4;
+@@ -290,7 +292,7 @@ namespace coreinit
+ 	void __OSInitContext(OSContext_t* ctx, MEMPTR<void> initialIP, MEMPTR<void> initialStackPointer)
+ 	{
+ 		ctx->SetContextMagic();
+-		ctx->gpr[0] = 0; // r0 is left uninitialized on console?
++		ctx->gpr[0] = 0; 
+ 		for(auto& it : ctx->gpr)
+ 			it = 0;
+ 		ctx->gpr[1] = _swapEndianU32(initialStackPointer.GetMPTR());
+@@ -379,7 +381,7 @@ namespace coreinit
+ 		alignedStackTop32[-2] = 0;
+ 
+ 		__OSInitContext(&thread->context, MEMPTR<void>(PPCInterpreter_makeCallableExportDepr(threadEntry)), (void*)(alignedStackTop32.GetPtr() - 2));
+-		thread->stackBase = stackTop; // without alignment
++		thread->stackBase = stackTop; 
+ 		thread->stackEnd = ((uint8*)stackTop.GetPtr() - stackSize);
+ 		thread->context.upir = upirCoreIndex;
+ 		thread->context.lr = _swapEndianU32(PPCInterpreter_makeCallableExportDepr(coreinitExport_OSExitThreadDepr));
+@@ -404,8 +406,6 @@ namespace coreinit
+ 		for(sint32 i=0; i<Espresso::CORE_COUNT; i++)
+ 			thread->context.coretime[i] = 0;
+ 
+-		// currentRunQueue and waitQueueLink is not initialized by COS and instead overwritten without validation
+-		// since we already have integrity checks in other functions, lets initialize it here
+ 		for(sint32 i=0; i<Espresso::CORE_COUNT; i++)
+ 			thread->currentRunQueue[i] = nullptr;
+ 		thread->waitQueueLink.prev = nullptr;
+@@ -438,7 +438,7 @@ namespace coreinit
+ 			thread->attr |= OSThread_t::ATTR_BIT::ATTR_AFFINITY_CORE1;
+ 			thread->context.affinity |= (1<<1);
+ 		}
+-		else // if (coreIndex == 2)
++		else 
+ 		{
+ 			thread->attr |= OSThread_t::ATTR_BIT::ATTR_AFFINITY_CORE2;
+ 			thread->context.affinity |= (1<<2);
+@@ -451,14 +451,11 @@ namespace coreinit
+ 		bool isThreadStillActive = __OSIsThreadActive(thread);
+ 		if (isThreadStillActive)
+ 		{
+-			// workaround for games that restart threads before they correctly entered stopped/moribund state
+-			// seen in Fast Racing Neo at boot (0x020617BC OSCreateThread)
+ 			cemuLog_log(LogType::Force, "Game attempting to re-initialize existing thread");
+ 			while ((thread->state == OSThread_t::THREAD_STATE::STATE_READY || thread->state == OSThread_t::THREAD_STATE::STATE_RUNNING) && thread->suspendCounter == 0)
+ 			{
+-				// wait for thread to finish
+ 				__OSUnlockScheduler();
+-				OSSleepTicks(ESPRESSO_TIMER_CLOCK / 2000); // sleep 0.5ms
++				OSSleepTicks(ESPRESSO_TIMER_CLOCK / 2000); 
+ 				__OSLockScheduler();
+ 			}
+ 			if (__OSIsThreadActive(thread) && thread->state == OSThread_t::THREAD_STATE::STATE_MORIBUND)
+@@ -504,7 +501,7 @@ namespace coreinit
+ 		thread->threadName = nullptr;
+ 		thread->context.affinity = attrBits & 7;
+ 		thread->attr = attrBits;
+-		if ((attrBits & 7) == 0) // if no explicit affinity is given, use the current core
++		if ((attrBits & 7) == 0) 
+ 			SetThreadAffinityToCore(thread, OSGetCoreId());
+ 		if(currentThread)
+ 		{
+@@ -533,11 +530,10 @@ namespace coreinit
+ 		if (entrypoint)
+ 		{
+ 			thread->id = 0x8000;
+-			__OSActivateThread(thread); // also handles adding the thread to g_activeThreadQueue
++			__OSActivateThread(thread); 
+ 		}
+ 		__OSUnlockScheduler(thread);
+ 		OSRestoreInterrupts(im);
+-		// recompile entry point function
+ 		if (entrypoint)
+ 			PPCRecompiler_recompileIfUnvisited(entrypoint.GetMPTR());
+ 		return true;
+@@ -559,7 +555,6 @@ namespace coreinit
+ 		return __OSCreateThreadInternal2(thread, MEMPTR<void>(entryPoint), numParam, ptrParam, stackTop, stackSize, priority, attr, OSThread_t::THREAD_TYPE::TYPE_APP);
+ 	}
+ 
+-	// similar to OSCreateThreadType, but can be used to create any type of thread
+ 	bool __OSCreateThreadType(OSThread_t* thread, MPTR entryPoint, sint32 numParam, void* ptrParam, void* stackTop, sint32 stackSize, sint32 priority, uint32 attr, OSThread_t::THREAD_TYPE threadType)
+ 	{
+ 		return __OSCreateThreadInternal2(thread, MEMPTR<void>(entryPoint), numParam, ptrParam, stackTop, stackSize, priority, attr, threadType);
+@@ -569,11 +564,10 @@ namespace coreinit
+ 	{
+ 		__OSLockScheduler();
+ 
+-		cemu_assert_debug(PPCInterpreter_getCurrentInstance() == nullptr || OSGetCurrentThread() != thread); // called on self, what should this function do?
++		cemu_assert_debug(PPCInterpreter_getCurrentInstance() == nullptr || OSGetCurrentThread() != thread); 
+ 
+ 		if (thread->state != OSThread_t::THREAD_STATE::STATE_NONE && thread->state != OSThread_t::THREAD_STATE::STATE_MORIBUND)
+ 		{
+-			// unsure about this case
+ 			cemuLog_logDebug(LogType::Force, "OSRunThread called on thread which cannot be ran");
+ 			__OSUnlockScheduler();
+ 			return false;
+@@ -586,15 +580,12 @@ namespace coreinit
+ 			coreinit::__OSRemoveThreadFromRunQueues(thread);
+ 		}
+ 
+-		// set thread state
+-		// todo - this should fully reinitialize the thread?
+-
+ 		thread->entrypoint = funcAddress;
+ 		thread->context.srr0 = PPCInterpreter_makeCallableExportDepr(threadEntry);
+ 		thread->context.lr = _swapEndianU32(PPCInterpreter_makeCallableExportDepr(coreinitExport_OSExitThreadDepr));
+ 		thread->context.gpr[3] = _swapEndianU32(numParam);
+ 		thread->context.gpr[4] = _swapEndianU32(memory_getVirtualOffsetFromPointer(ptrParam));
+-		thread->suspendCounter = 0;	// verify
++		thread->suspendCounter = 0;	
+ 
+ 		MPTR threadMPTR = memory_getVirtualOffsetFromPointer(thread);
+ 
+@@ -614,24 +605,20 @@ namespace coreinit
+ 		hCPU->gpr[3] = exitValue;
+ 		OSThread_t* currentThread = coreinit::OSGetCurrentThread();
+ 
+-		// thread cleanup callback
+ 		if (currentThread->cleanupCallback)
+ 		{
+ 			currentThread->stateFlags = _swapEndianU32(_swapEndianU32(currentThread->stateFlags) | 0x00000001);
+ 			PPCCoreCallback(currentThread->cleanupCallback.GetMPTR(), currentThread, currentThread->stackEnd);
+ 		}
+-		// cpp exception cleanup
+ 		if (gCoreinitData->__cpp_exception_cleanup_ptr != 0 && currentThread->crt.eh_globals != nullptr)
+ 		{
+ 			PPCCoreCallback(_swapEndianU32(gCoreinitData->__cpp_exception_cleanup_ptr), &currentThread->crt.eh_globals);
+ 			currentThread->crt.eh_globals = nullptr;
+ 		}
+-		// set exit code
+ 		currentThread->exitValue = exitValue;
+ 
+ 		__OSLockScheduler();
+ 
+-		// release held synchronization primitives
+ 		if (!currentThread->mutexQueue.isEmpty())
+ 		{
+ 			cemuLog_log(LogType::Force, "OSExitThread: Thread is holding mutexes");
+@@ -649,24 +636,19 @@ namespace coreinit
+ 				coreinit::OSUnlockMutexInternal(mutex);
+ 			}
+ 		}
+-		// todo - release all fast mutexes
+ 
+-		// handle join queue
+ 		if (!currentThread->joinQueue.isEmpty())
+ 			currentThread->joinQueue.wakeupEntireWaitQueue(false);
+ 	
+ 		if ((currentThread->attr & 8) != 0)
+ 		{
+-			// deactivate thread since it is detached
+ 			currentThread->state = OSThread_t::THREAD_STATE::STATE_NONE;
+ 			coreinit::__OSDeactivateThread(currentThread);
+-			// queue call to thread deallocator if set
+ 			if (!currentThread->deallocatorFunc.IsNull())
+ 				__OSQueueThreadDeallocation(currentThread);
+ 		}
+ 		else
+ 		{
+-			// non-detached threads remain active
+ 			currentThread->state = OSThread_t::THREAD_STATE::STATE_MORIBUND;
+ 		}
+ 		PPCCore_switchToSchedulerWithLock();
+@@ -734,16 +716,11 @@ namespace coreinit
+ 		thread->attr |= OSThread_t::ATTR_BIT::ATTR_DETACHED;
+ 		if (thread->state == OSThread_t::THREAD_STATE::STATE_MORIBUND)
+ 		{
+-			// exit thread
+-			// ?
+-
+-			// todo -> call deallocator
+ 			thread->state = OSThread_t::THREAD_STATE::STATE_NONE;
+ 			thread->id = 0x8000;
+ 			coreinit::__OSDeactivateThread(thread);
+ 			if (!thread->joinQueue.isEmpty())
+ 			{
+-				// handle join queue
+ 				thread->joinQueue.wakeupEntireWaitQueue(true);
+ 			}
+ 		}
+@@ -757,23 +734,19 @@ namespace coreinit
+ 		if ((thread->attr & OSThread_t::ATTR_DETACHED) == 0 && thread->state != OSThread_t::THREAD_STATE::STATE_MORIBUND)
+ 		{
+ 			cemu_assert_debug(thread->joinQueue.isEmpty());
+-			// thread still running, wait in join queue
+ 			thread->joinQueue.queueAndWait(OSGetCurrentThread());
+ 		}
+ 		else if (thread->state != OSThread_t::THREAD_STATE::STATE_MORIBUND)
+ 		{
+-			// cannot join detached and active threads
+ 			cemuLog_logDebug(LogType::Force, "Cannot join detached active thread");
+ 			__OSUnlockScheduler();
+ 			return false;
+ 		}
+ 
+-		// thread already ended and is still attached, get return value
+ 		cemu_assert_debug(thread->state == OSThread_t::THREAD_STATE::STATE_MORIBUND);
+ 		cemu_assert_debug((thread->attr & OSThread_t::ATTR_DETACHED) == 0);
+ 		if (exitValue)
+ 			*exitValue = thread->exitValue;
+-		// end thread
+ 		thread->state = OSThread_t::THREAD_STATE::STATE_NONE;
+ 		__OSDeactivateThread(thread);
+ 		coreinit::__OSRemoveThreadFromRunQueues(thread);
+@@ -782,7 +755,7 @@ namespace coreinit
+ 		if (!thread->deallocatorFunc.IsNull())
+ 		{
+ 			__OSQueueThreadDeallocation(thread);
+-			PPCCore_switchToSchedulerWithLock(); // make sure the deallocation function runs before we return
++			PPCCore_switchToSchedulerWithLock(); 
+ 		}
+ 
+ 		__OSUnlockScheduler();
+@@ -790,7 +763,6 @@ namespace coreinit
+ 		return true;
+ 	}
+ 
+-	// adds the thread to each core's run queue if in runable state
+ 	void __OSAddReadyThreadToRunQueue(OSThread_t* thread)
+ 	{
+         cemu_assert_debug(MMU_IsInPPCMemorySpace(thread));
+@@ -804,8 +776,7 @@ namespace coreinit
+ 		for (sint32 i = 0; i < PPC_CORE_COUNT; i++)
+ 		{
+ 			if (thread->currentRunQueue[i] != nullptr)
+-				continue; // already on the queue
+-			// check affinity
++				continue; 
+ 			if(!thread->context.hasCoreAffinitySet(i))
+ 				continue;
+ 			g_coreRunQueue.GetPtr()[i].addThread(thread, thread->linkRun + i);
+@@ -827,17 +798,13 @@ namespace coreinit
+ 		}
+ 	}
+ 
+-	// returns true if thread runs on same core and has higher priority
+ 	bool __OSCoreShouldSwitchToThread(OSThread_t* currentThread, OSThread_t* newThread, bool sharedPriorityAndAffinityWorkaround)
+ 	{
+ 		uint32 coreIndex = OSGetCoreId();
+ 		if (!newThread->context.hasCoreAffinitySet(coreIndex))
+ 			return false;
+-		// special case: if current and new thread are running only on the same core then reschedule even if priority is equal
+-		// this resolves a deadlock in Just Dance 2019 where one thread would always reacquire the same mutex within it's timeslice, blocking another thread on the same core from acquiring it
+ 		if (sharedPriorityAndAffinityWorkaround && (1<<coreIndex) == newThread->context.affinity && currentThread->context.affinity == newThread->context.affinity && currentThread->effectivePriority == newThread->effectivePriority)
+ 			return true;
+-		// otherwise reschedule if new thread has higher priority
+ 		return newThread->effectivePriority < currentThread->effectivePriority;
+ 	}
+ 
+@@ -857,10 +824,7 @@ namespace coreinit
+ 		if (thread->suspendCounter == 0)
+ 		{
+ 			__OSAddReadyThreadToRunQueue(thread);
+-			// set awakened time if thread is ready
+-			// todo - only set this once?
+ 			thread->wakeUpTime = PPCInterpreter_getMainCoreCycleCounter();
+-			// reschedule if thread has higher priority
+ 			if (PPCInterpreter_getCurrentInstance() && __OSCoreShouldSwitchToThread(coreinit::OSGetCurrentThread(), thread, false))
+ 				PPCCore_switchToSchedulerWithLock();
+ 		}
+@@ -885,7 +849,7 @@ namespace coreinit
+ 	void __OSSuspendThreadInternal(OSThread_t* thread)
+ 	{
+ 		cemu_assert_debug(__OSHasSchedulerLock());
+-		cemu_assert_debug(thread->state != OSThread_t::THREAD_STATE::STATE_NONE && thread->state != OSThread_t::THREAD_STATE::STATE_MORIBUND); // how to handle these?
++		cemu_assert_debug(thread->state != OSThread_t::THREAD_STATE::STATE_NONE && thread->state != OSThread_t::THREAD_STATE::STATE_MORIBUND); 
+ 
+ 		sint32 previousSuspendCount = thread->suspendCounter;
+ 
+@@ -900,7 +864,6 @@ namespace coreinit
+ 			if (previousSuspendCount == 0)
+ 			{
+ 				__OSRemoveThreadFromRunQueues(thread);
+-				// todo - if thread is still running find a way to cancel it's timeslice immediately
+ 			}
+ 		}
+ 	}
+@@ -940,7 +903,6 @@ namespace coreinit
+ 		{
+ 			thread->attr = (thread->attr & ~7) | (affinityMask & 7);
+ 			thread->context.setAffinity(affinityMask);
+-			// should this reschedule the thread?
+ 		}
+ 		else if (prevAffinityMask != affinityMask)
+ 		{
+@@ -997,7 +959,6 @@ namespace coreinit
+ 	{
+ 		if (thread->context.boostCount != 0)
+ 		{
+-			// temporarily boosted threads have their priority set to 0 (maximum)
+ 			thread->effectivePriority = 0;
+ 			return;
+ 		}
+@@ -1009,12 +970,11 @@ namespace coreinit
+ 		if (newPriority < 0 || newPriority >= 0x20)
+ 		{
+ 			cemu_assert_debug(false);
+-			return false; // invalid priority value
++			return false; 
+ 		}
+ 		__OSLockScheduler();
+ 		__OSSetThreadBasePriority(thread, newPriority);
+ 		__OSUpdateThreadEffectivePriority(thread);
+-		// reschedule if needed
+ 		OSThread_t* currentThread = OSGetCurrentThread();
+ 		if (currentThread && currentThread != thread)
+ 		{
+@@ -1070,17 +1030,15 @@ namespace coreinit
+     void OSCancelThread(OSThread_t* thread)
+ 	{
+ 		__OSLockScheduler();
+-		cemu_assert_debug(thread->requestFlags == 0 || thread->requestFlags == OSThread_t::REQUEST_FLAG_CANCEL); // todo - how to handle cases where other flags are already set?
++		cemu_assert_debug(thread->requestFlags == 0 || thread->requestFlags == OSThread_t::REQUEST_FLAG_CANCEL); 
+ 		thread->requestFlags = OSThread_t::REQUEST_FLAG_CANCEL;
+ 		__OSUnlockScheduler();
+-		// if the canceled thread is self, then exit immediately
+ 		if (thread == OSGetCurrentThread())
+ 			OSExitThread(-1);
+ 	}
+ 
+ 	void OSTestThreadCancelInternal()
+ 	{
+-		// also handles suspend request ?
+ 		cemu_assert_debug(__OSHasSchedulerLock());
+ 		OSThread_t* thread = OSGetCurrentThread();
+ 		if (thread->requestFlags == OSThread_t::REQUEST_FLAG_CANCEL)
+@@ -1109,11 +1067,9 @@ namespace coreinit
+ 
+ 	void __OSThreadLoadContext(PPCInterpreter_t* hCPU, OSThread_t* thread)
+ 	{
+-		// load GPR
+ 		for (uint32 i = 0; i < 32; i++)
+ 			hCPU->gpr[i] = _swapEndianU32(thread->context.gpr[i]);
+ 
+-		// load SPR cr, lr, ctr, xer
+ 		ppc_setCR(hCPU, thread->context.cr);
+ 		hCPU->spr.LR = _swapEndianU32(thread->context.lr);
+ 		hCPU->spr.CTR = thread->context.ctr;
+@@ -1121,7 +1077,6 @@ namespace coreinit
+ 
+ 		hCPU->fpscr = thread->context.fpscr.fpscr;
+ 
+-		// store floating point and Gekko registers
+ 		for (uint32 i = 0; i < 32; i++)
+ 		{
+ 			hCPU->fpr[i].fp0int = thread->context.fp_ps0[i];
+@@ -1138,10 +1093,8 @@ namespace coreinit
+ 
+ 	void __OSThreadStoreContext(PPCInterpreter_t* hCPU, OSThread_t* thread)
+ 	{
+-		// store GPR
+ 		for (uint32 i = 0; i < 32; i++)
+ 			thread->context.gpr[i] = _swapEndianU32(hCPU->gpr[i]);
+-		// store SPRs
+ 		thread->context.cr = ppc_getCR(hCPU);
+ 		thread->context.lr = _swapEndianU32(hCPU->spr.LR);
+ 		thread->context.ctr = hCPU->spr.CTR;
+@@ -1150,7 +1103,6 @@ namespace coreinit
+ 		thread->context.fpscr.fpscr = hCPU->fpscr;
+ 		thread->context.fpscr.padding = 0;
+ 
+-		// store floating point and Gekko registers
+ 		for (uint32 i = 0; i < 32; i++)
+ 		{
+ 			thread->context.fp_ps0[i] = hCPU->fpr[i].fp0int;
+@@ -1174,16 +1126,14 @@ namespace coreinit
+ 		}
+ 		else if (thread->state == OSThread_t::THREAD_STATE::STATE_MORIBUND || thread->state == OSThread_t::THREAD_STATE::STATE_NONE || thread->state == OSThread_t::THREAD_STATE::STATE_WAITING)
+ 		{
+-			// thread exited or suspending/waiting
+ 		}
+ 		else
+ 		{
+ 			cemu_assert_debug(false);
+ 		}
+ 
+-		thread->requestFlags = (OSThread_t::REQUEST_FLAG_BIT)(thread->requestFlags & OSThread_t::REQUEST_FLAG_CANCEL); // remove all flags except cancel flag
++		thread->requestFlags = (OSThread_t::REQUEST_FLAG_BIT)(thread->requestFlags & OSThread_t::REQUEST_FLAG_CANCEL); 
+ 
+-		// update total cycles
+ 		sint64 executedCycles = (sint64)thread->quantumTicks - (sint64)hCPU->remainingCycles;
+ 		executedCycles = std::max<sint64>(executedCycles, 0);
+ 		if (executedCycles < (sint64)hCPU->skippedCycles)
+@@ -1191,7 +1141,6 @@ namespace coreinit
+ 		else
+ 			executedCycles -= hCPU->skippedCycles;
+ 		thread->totalCycles += (uint64)executedCycles;
+-		// store context and set current thread to null
+ 		__OSThreadStoreContext(hCPU, thread);
+ 		OSSetCurrentThread(OSGetCoreId(), nullptr);
+ 		PPCInterpreter_setCurrentInstance(nullptr);
+@@ -1210,7 +1159,6 @@ namespace coreinit
+ 		__OSThreadLoadContext(hCPU, thread);
+ 		thread->context.upir = coreIndex;
+ 		thread->quantumTicks = ppcThreadQuantum;
+-		// statistics
+ 		thread->wakeUpTime = PPCInterpreter_getMainCoreCycleCounter();
+ 		thread->wakeUpCount = thread->wakeUpCount + 1;
+ 	}
+@@ -1220,11 +1168,8 @@ namespace coreinit
+ 	void __OSThreadStartTimeslice(OSThread_t* thread, PPCInterpreter_t* hCPU)
+ 	{
+ 		uint32 coreIndex = PPCInterpreter_getCoreIndex(hCPU);
+-		// run one timeslice
+ 		hCPU->remainingCycles = ppcThreadQuantum;
+ 		hCPU->skippedCycles = 0;
+-		// we add a slight randomized variance to the thread quantum to avoid getting stuck in repeated code sequences where one or multiple threads always unload inside a lock
+-		// this was seen in Mario Party 10 during early boot where several OSLockMutex operations would align in such a way that one thread would never successfully acquire the lock
+ 		if (s_lehmer_lcg[coreIndex] == 0)
+ 			s_lehmer_lcg[coreIndex] = 12345;
+ 		hCPU->remainingCycles += (s_lehmer_lcg[coreIndex] & 0x7F);
+@@ -1234,7 +1179,6 @@ namespace coreinit
+ 	OSThread_t* __OSGetNextRunableThread(uint32 coreIndex)
+ 	{
+ 		cemu_assert_debug(__OSHasSchedulerLock());
+-		// pick thread, then remove from run queue
+ 		OSThreadQueue* runQueue = g_coreRunQueue.GetPtr() + coreIndex;
+ 
+ 		OSThread_t* threadItr = runQueue->head.GetPtr();
+@@ -1272,18 +1216,13 @@ namespace coreinit
+ 
+ 	void __OSCheckSystemEvents()
+ 	{
+-		// AX update
+ 		snd_core::AXOut_update();
+-		// alarm update
+ 		coreinit::alarm_update();
+-		// nfp update
+ 		nnNfp_update();
+ 	}
+ 
+ 	Fiber* g_idleLoopFiber[3]{};
+ 
+-	// idle fiber per core if no thread is runnable
+-	// this is necessary since we can't block in __OSThreadSwitchToNext() (__OSStoreThread + thread switch must happen inside same scheduler lock)
+ 	void __OSThreadCoreIdle(void* unusedParam)
+ 	{
+ 		bool isMainCore = g_isMulticoreMode == false || t_assignedCoreIndex == 1;
+@@ -1291,7 +1230,7 @@ namespace coreinit
+ 		__OSUnlockScheduler();
+ 		while (true)
+ 		{
+-			if (!g_coreRunQueueThreadCount[coreIndex].isZero()) // avoid hammering the lock on the main core if there is no runable thread
++			if (!g_coreRunQueueThreadCount[coreIndex].isZero()) 
+ 			{
+ 				__OSLockScheduler();
+ 				OSThread_t* nextThread = __OSGetNextRunableThread(coreIndex);
+@@ -1310,10 +1249,9 @@ namespace coreinit
+ 			}
+ 			else
+ 			{
+-				// wait for semaphore (only in multicore mode)
+ 				g_coreRunQueueThreadCount[t_assignedCoreIndex].waitUntilNonZero();
+ 				if (!sSchedulerActive.load(std::memory_order::relaxed))
+-					Fiber::Switch(*t_schedulerFiber); // switch back to original thread to exit
++					Fiber::Switch(*t_schedulerFiber); 
+ 			}
+ 		}
+ 	}
+@@ -1325,19 +1263,14 @@ namespace coreinit
+ 		OSHostThread* hostThread = (OSHostThread*)Fiber::GetFiberPrivateData();
+         cemu_assert_debug(hostThread);
+ 
+-		//if (ppcInterpreterCurrentInstance)
+-		//	debug_printf("Core %d store thread %08x (t = %d)\n", hostThread->ppcInstance.sprNew.UPIR, memory_getVirtualOffsetFromPointer(hostThread->thread), t_assignedCoreIndex);
+-
+-		// store context of current thread
+ 		__OSStoreThread(OSGetCurrentThread(), &hostThread->ppcInstance);
+ 		cemu_assert_debug(PPCInterpreter_getCurrentInstance() == nullptr);
+ 
+ 		if (!sSchedulerActive.load(std::memory_order::relaxed))
+ 		{
+ 			__OSUnlockScheduler();
+-			Fiber::Switch(*t_schedulerFiber); // switch back to original thread entry for it to exit
++			Fiber::Switch(*t_schedulerFiber); 
+ 		}
+-		// choose core
+ 		static uint32 _coreCounter = 0;
+ 
+ 		sint32 coreIndex;
+@@ -1349,11 +1282,8 @@ namespace coreinit
+ 			_coreCounter = (_coreCounter + 1) % 3;
+ 		}
+ 
+-		// if main thread then dont forget to do update checks
+ 		bool isMainThread = g_isMulticoreMode == false || t_assignedCoreIndex == 1;
+ 
+-		// find next thread to run
+-		// for main thread we force switching to the idle loop since it calls __OSCheckSystemEvents()
+ 		if(isMainThread)
+ 			Fiber::Switch(*g_idleLoopFiber[t_assignedCoreIndex]);
+ 		else if (OSThread_t* nextThread = __OSGetNextRunableThread(coreIndex))
+@@ -1369,7 +1299,6 @@ namespace coreinit
+ 		cemu_assert_debug(__OSHasSchedulerLock());	
+ 		cemu_assert_debug(g_isMulticoreMode == false || hostThread->selectedCore == t_assignedCoreIndex);
+ 
+-		// received next time slice, load self again
+ 		__OSLoadThread(hostThread->m_thread, &hostThread->ppcInstance, hostThread->selectedCore);
+ 		__OSThreadStartTimeslice(hostThread->m_thread, &hostThread->ppcInstance);
+ 	}
+@@ -1389,23 +1318,19 @@ namespace coreinit
+ 		PPCInterpreter_t* hCPU = &hostThread->ppcInstance;
+ 		__OSLoadThread(hostThread->m_thread, hCPU, hostThread->selectedCore);
+ 		__OSThreadStartTimeslice(hostThread->m_thread, &hostThread->ppcInstance);
+-		__OSUnlockScheduler(); // lock is always held when switching to a fiber, so we need to unlock it here
++		__OSUnlockScheduler(); 
+ 		while (true)
+ 		{
+ 			if (hCPU->remainingCycles > 0)
+ 			{
+-				// try to enter recompiler immediately
+ 				PPCRecompiler_attemptEnterWithoutRecompile(hCPU, hCPU->instructionPointer);
+-				// keep executing as long as there are cycles left
+ 				while ((--hCPU->remainingCycles) >= 0)
+ 					PPCInterpreterSlim_executeInstruction(hCPU);
+ 			}
+ 
+-			// reset reservation
+ 			hCPU->reservedMemAddr = 0;
+ 			hCPU->reservedMemValue = 0;
+ 
+-			// reschedule
+ 			__OSLockScheduler();
+ 			__OSThreadSwitchToNext();
+ 			__OSUnlockScheduler();
+@@ -1431,12 +1356,26 @@ namespace coreinit
+ 		SetThreadName(fmt::format("OSSched[core={}]", (uintptr_t)_assignedCoreIndex).c_str());
+ 		t_assignedCoreIndex = (sint32)(uintptr_t)_assignedCoreIndex;
+ 
++#ifdef __ANDROID__
++		{
++			cpu_set_t cpuset;
++			CPU_ZERO(&cpuset);
++			if (t_assignedCoreIndex == 1) {
++				CPU_SET(7, &cpuset);
++			} else if (t_assignedCoreIndex == 0) {
++				CPU_SET(4, &cpuset);
++			} else {
++				CPU_SET(5, &cpuset);
++			}
++			sched_setaffinity(0, sizeof(cpu_set_t), &cpuset);
++		}
++#endif
++
+ 		enableFlushDenormalsToZero();
+ 
+ #if BOOST_OS_LINUX
+ 		if (g_gdbstub)
+ 		{
+-			// need to allow the GDBStub to attach to our thread
+ 			prctl(PR_SET_DUMPABLE, (unsigned long)1);
+ 			prctl(PR_SET_PTRACER, PR_SET_PTRACER_ANY);
+ 		}
+@@ -1450,12 +1389,10 @@ namespace coreinit
+ 
+ 		t_schedulerFiber = Fiber::PrepareCurrentThread();
+ 
+-		// create scheduler idle fiber and switch to it
+ 		g_idleLoopFiber[t_assignedCoreIndex] = new Fiber(__OSThreadCoreIdle, nullptr, nullptr);
+ 		cemu_assert_debug(PPCInterpreter_getCurrentInstance() == nullptr);
+ 		__OSLockScheduler();
+ 		Fiber::Switch(*g_idleLoopFiber[t_assignedCoreIndex]);
+-		// returned from scheduler loop, exit thread
+ 		cemu_assert_debug(!__OSHasSchedulerLock());
+ 	}
+ 
+@@ -1466,12 +1403,12 @@ namespace coreinit
+ 		return g_schedulerThreadHandles;
+ 	}
+ 
+-	// starts PPC core emulation
+ 	void OSSchedulerBegin(sint32 numCPUEmulationThreads)
+ 	{
+-		std::unique_lock _lock(sSchedulerStateMtx);
+-		if (sSchedulerActive.exchange(true))
++		bool expected = false;
++		if (!sSchedulerStateFlag.compare_exchange_strong(expected, true, std::memory_order_relaxed, std::memory_order_relaxed))
+ 			return;
++		sSchedulerActive.store(true, std::memory_order_relaxed);
+ 		cemu_assert_debug(numCPUEmulationThreads == 1 || numCPUEmulationThreads == 3);
+ 		g_isMulticoreMode = numCPUEmulationThreads > 1;
+ 		if (numCPUEmulationThreads == 1)
+@@ -1487,14 +1424,14 @@ namespace coreinit
+ 			g_schedulerThreadHandles.emplace_back(it.native_handle());
+ 	}
+ 
+-    // shuts down all scheduler host threads and deletes all fibers and ppc threads
+-	void OSSchedulerEnd()
++    void OSSchedulerEnd()
+ 	{
+-		std::unique_lock _lock(sSchedulerStateMtx);
+-		sSchedulerActive.store(false);
++		bool expected = true;
++		if (!sSchedulerStateFlag.compare_exchange_strong(expected, false, std::memory_order_relaxed, std::memory_order_relaxed))
++			return;
++		sSchedulerActive.store(false, std::memory_order_relaxed);
+ 		for (size_t i = 0; i < Espresso::CORE_COUNT; i++)
+-			g_coreRunQueueThreadCount[i].increment(); // make sure to wake up cores if they are paused and waiting for runnable threads
+-		// wait for threads to stop execution
++			g_coreRunQueueThreadCount[i].increment(); 
+ 		for (auto& threadItr : sSchedulerThreads)
+ 			threadItr.join();
+ 		sSchedulerThreads.clear();
+@@ -1505,7 +1442,6 @@ namespace coreinit
+ 			g_schedulerThreadIds.clear();
+ 		}
+ #endif
+-		// clean up all fibers
+ 		for (auto& it : g_idleLoopFiber)
+ 		{
+ 			delete it;
+@@ -1553,7 +1489,6 @@ namespace coreinit
+ 		threadQueue->ukn0C = 0;
+ 	}
+ 	
+-	/* Thread terminator threads (for calling thread deallocators) */
+ 	struct TerminatorThread 
+ 	{
+ 		struct DeallocatorQueueEntry
+@@ -1587,14 +1522,12 @@ namespace coreinit
+ 		osLib_returnFromFunction(hCPU, 0);
+ 	}
+ 
+-	// queue thread deallocation to run after current thread finishes
+-	// the termination threads run at a higher priority on the same core
+ 	void __OSQueueThreadDeallocation(OSThread_t* thread)
+ 	{
+ 		uint32 coreIndex = OSGetCoreId();
+ 		TerminatorThread::DeallocatorQueueEntry queueEntry(thread, thread->stackEnd, thread->deallocatorFunc);
+ 		s_terminatorThreads[coreIndex].queueDeallocators.push(queueEntry);
+-		OSSignalSemaphoreInternal(s_terminatorThreads[coreIndex].semaphoreQueuedDeallocators.GetPtr(), false); // do not reschedule here! Current thread must not be interrupted otherwise deallocator will run too early
++		OSSignalSemaphoreInternal(s_terminatorThreads[coreIndex].semaphoreQueuedDeallocators.GetPtr(), false); 
+ 	}
+ 
+ 	void __OSInitTerminatorThreads()
+@@ -1665,7 +1598,6 @@ namespace coreinit
+ 
+ 		cafeExportRegister("coreinit", OSGetDefaultThread, LogType::CoreinitThread);
+ 
+-		// OSThreadQueue
+ 		cafeExportRegister("coreinit", OSInitThreadQueue, LogType::CoreinitThread);
+ 		cafeExportRegister("coreinit", OSInitThreadQueueEx, LogType::CoreinitThread);
+     }
+@@ -1680,4 +1612,4 @@ namespace coreinit
+ 		__OSInitDefaultThreads();
+ 		__OSInitTerminatorThreads();
+ 	}
+-}
++}
+\ No newline at end of file
