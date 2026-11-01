@@ -1,31 +1,28 @@
 diff --git a/Cemu/src/Cafe/HW/Espresso/Interpreter/PPCInterpreterImpl.cpp b/Cemu/src/Cafe/HW/Espresso/Interpreter/PPCInterpreterImpl.cpp.temp
-index 547472ab..3e208353 100644
+index 3e208353..f0861ce7 100644
 --- a/Cemu/src/Cafe/HW/Espresso/Interpreter/PPCInterpreterImpl.cpp
 +++ b/Cemu/src/Cafe/HW/Espresso/Interpreter/PPCInterpreterImpl.cpp.temp
-@@ -65,13 +65,20 @@ public:
- 	{
- 		uint64 v = *(uint64*)(memory_getPointerFromVirtualOffset(address));
+@@ -67,16 +67,21 @@ public:
  		return CPU_swapEndianU64(v);
--	}
--
  	inline static uint32 ppcMem_readDataU32(PPCInterpreter_t* hCPU, uint32 address)
--	{
--		uint32 v = *(uint32*)(memory_getPointerFromVirtualOffset(address));
--		return CPU_swapEndianU32(v);
--	}
-+{
-+    void* ptr = memory_getPointerFromVirtualOffset(address);
-+    if (!ptr)
+ {
++    if (!memory_isValidRange(address, sizeof(uint32)))
 +    {
 +        PPCState_t_dataAccessFault(hCPU, address);
 +        return 0;
 +    }
-+    
-+    uint32 v;
-+    std::memcpy(&v, ptr, sizeof(uint32));
-+    
-+    return CPU_swapEndianU32(v);
-+}
++
+     void* ptr = memory_getPointerFromVirtualOffset(address);
+     if (!ptr)
+     {
+         PPCState_t_dataAccessFault(hCPU, address);
+         return 0;
+     }
+-    
++
+     uint32 v;
+     std::memcpy(&v, ptr, sizeof(uint32));
+-    
+     return CPU_swapEndianU32(v);
+ }
  
- 	inline static uint16 ppcMem_readDataU16(PPCInterpreter_t* hCPU, uint32 address)
- 	{
