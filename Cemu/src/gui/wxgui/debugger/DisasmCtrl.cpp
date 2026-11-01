@@ -14,8 +14,6 @@
 #include "Cemu/ExpressionParser/ExpressionParser.h"
 #include "Cafe/HW/Espresso/Debugger/DebugSymbolStorage.h"
 
-#include <wx/clipbrd.h>
-
 wxDEFINE_EVENT(wxEVT_DISASMCTRL_NOTIFY_GOTO_ADDRESS, wxCommandEvent);
 
 #define MAX_SYMBOL_LEN			(120)
@@ -117,11 +115,10 @@ DisasmCtrl::DisasmCtrl(wxWindow* parent, const wxWindowID& id, const wxPoint& po
 {
 	Init();
 
-	InitSyntaxColors();
-	Bind(wxEVT_SYS_COLOUR_CHANGED, [this](wxSysColourChangedEvent& event) {
-		event.Skip();
-		CallAfter([this] { InitSyntaxColors(); Refresh(); });
-	});
+	if (!g_ipArrowBitmap.has_value())
+	{
+		InitSyntaxColors();
+	}
 
 	auto tooltip_sizer = new wxBoxSizer(wxVERTICAL);
 	tooltip_sizer->Add(new wxStaticText(m_tooltip_window, wxID_ANY, wxEmptyString), 0, wxALL, 5);
@@ -192,19 +189,13 @@ void DisasmCtrl::DrawDisassemblyLine(wxDC& dc, const wxPoint& linePosition, MPTR
 
 	ppcAssembler_disassemble(virtualAddress, opcode, &disasmInstr);
 
-	bool hasActiveBP = false;
-	PPCInterpreter_t* sessionCpu = debugger_lockDebugSession();
-	if (sessionCpu)
-	{
-		hasActiveBP = sessionCpu->instructionPointer == virtualAddress;
-		debugger_unlockDebugSession(sessionCpu);
-	}
+	const bool is_active_bp = debuggerState.debugSession.isTrapped && debuggerState.debugSession.instructionPointer == virtualAddress;
 
 	// write virtual address
 	wxColour background_colour;
-	if (hasActiveBP && bp != nullptr)
+	if (is_active_bp && bp != nullptr)
 		background_colour = theme_lineBreakpointAndCurrentInstruction;
-	else if (hasActiveBP)
+	else if (is_active_bp)
 		background_colour = theme_lineCurrentInstruction;
 	else if (bp != nullptr)
 		background_colour = bp->bpType == DEBUGGER_BP_T_NORMAL ? theme_lineBreakpointSet : theme_lineLoggingBreakpointSet;
@@ -228,7 +219,7 @@ void DisasmCtrl::DrawDisassemblyLine(wxDC& dc, const wxPoint& linePosition, MPTR
 	position.x += OFFSET_ADDRESS_RELATIVE;
 
 	// draw arrow to clearly indicate instruction pointer
-	if(hasActiveBP)
+	if(is_active_bp)
 		dc.DrawBitmap(*g_ipArrowBitmap, wxPoint(position.x - 24, position.y + 2), false);
 
 	// handle data symbols
@@ -599,7 +590,7 @@ void DisasmCtrl::OnKeyPressed(sint32 key_code, const wxPoint& position)
 				debugger_toggleExecuteBreakpoint(*optVirtualAddress);
 
 				wxCommandEvent evt(wxEVT_BREAKPOINT_CHANGE);
-				wxPostEvent(this->GetParent(), evt);
+				wxPostEvent(this->m_parent, evt);
 			}
 			return;
 		}
@@ -613,35 +604,36 @@ void DisasmCtrl::OnKeyPressed(sint32 key_code, const wxPoint& position)
 		}
 	}
 
+
 	// debugger currently in break state
-	PPCInterpreter_t* debugCpu = debugger_lockDebugSession();
-	if (debugCpu)
+	if (debuggerState.debugSession.isTrapped)
 	{
 		switch (key_code)
 		{
-			case WXK_F5:
+		case WXK_F5:
 			{
-				debugger_stepCommand(DebuggerStepCommand::Run);
-				break;
+				debuggerState.debugSession.run = true;
+				return;
 			}
-			case WXK_F10:
+		case WXK_F10:
 			{
-				debugger_stepCommand(DebuggerStepCommand::StepOver);
-				break;
+				debuggerState.debugSession.stepOver = true;
+				return;
 			}
-			case WXK_F11:
+		case WXK_F11:
 			{
-				debugger_stepCommand(DebuggerStepCommand::StepInto);
-				break;
+				debuggerState.debugSession.stepInto = true;
 			}
 		}
-		debugger_unlockDebugSession(debugCpu);
 	}
 	else
 	{
-		if (key_code == WXK_F5)
+		switch (key_code)
 		{
-			debugger_requestBreak();
+		case WXK_F5:
+			{
+				debuggerState.debugSession.shouldBreak = true;
+			}
 		}
 	}
 }
@@ -661,7 +653,7 @@ void DisasmCtrl::OnMouseDClick(const wxPoint& position, uint32 line)
 		debugger_toggleExecuteBreakpoint(virtualAddress);
 		RefreshLine(line);
 		wxCommandEvent evt(wxEVT_BREAKPOINT_CHANGE);
-		wxPostEvent(this->GetParent(), evt);
+		wxPostEvent(this->m_parent, evt);
 		return;
 	}
 	else if (pos.x <= OFFSET_ADDRESS + OFFSET_ADDRESS_RELATIVE + OFFSET_DISASSEMBLY)
@@ -702,11 +694,20 @@ void DisasmCtrl::OnMouseDClick(const wxPoint& position, uint32 line)
 
 void DisasmCtrl::CopyToClipboard(std::string text)
 {
-	if (wxClipboard::Get()->Open())
+#if BOOST_OS_WINDOWS
+	if (OpenClipboard(nullptr))
 	{
-		wxClipboard::Get()->SetData(new wxTextDataObject(text));
-		wxClipboard::Get()->Close();
+		EmptyClipboard();
+		const HGLOBAL hGlobal = GlobalAlloc(GMEM_MOVEABLE, text.size() + 1);
+		if (hGlobal)
+		{
+			memcpy(GlobalLock(hGlobal), text.c_str(), text.size() + 1);
+			GlobalUnlock(hGlobal);
+			SetClipboardData(CF_TEXT, hGlobal);
+		}
+		CloseClipboard();
 	}
+#endif
 }
 
 static uint32 GetUnrelocatedAddress(MPTR address)
@@ -748,21 +749,21 @@ void DisasmCtrl::OnContextMenuEntryClicked(wxCommandEvent& event)
 		{
 			debugger_toggleExecuteBreakpoint(m_contextMenuAddress);
 			wxCommandEvent evt(wxEVT_BREAKPOINT_CHANGE);
-			wxPostEvent(this->GetParent(), evt);
+			wxPostEvent(this->m_parent, evt);
 			break;
 		}
 		case IDContextMenu_ToggleLoggingBreakpoint:
 		{
 			debugger_toggleLoggingBreakpoint(m_contextMenuAddress);
 			wxCommandEvent evt(wxEVT_BREAKPOINT_CHANGE);
-			wxPostEvent(this->GetParent(), evt);
+			wxPostEvent(this->m_parent, evt);
 			break;
 		}
 		case IDContextMenu_RestoreOriginalInstructions:
 		{
 			debugger_removePatch(m_contextMenuAddress);
 			wxCommandEvent evt(wxEVT_BREAKPOINT_CHANGE); // This also refreshes the disassembly view
-			wxPostEvent(this->GetParent(), evt);
+			wxPostEvent(this->m_parent, evt);
 			break;
 		}
 		case IDContextMenu_CopyAddress:

@@ -19,13 +19,13 @@ vcpkg_find_acquire_program(PYTHON3)
 get_filename_component(PYTHON3_DIR "${PYTHON3}" DIRECTORY)
 vcpkg_add_to_path("${PYTHON3_DIR}")
 
-vcpkg_make_configure(
+vcpkg_configure_make(
     SOURCE_PATH "${SOURCE_PATH}"
-    AUTORECONF
+    AUTOCONFIG
     COPY_SOURCE
 )
 
-vcpkg_make_install()
+vcpkg_install_make()
 vcpkg_fixup_pkgconfig()
 
 file(REMOVE_RECURSE "${CURRENT_PACKAGES_DIR}/debug/include")

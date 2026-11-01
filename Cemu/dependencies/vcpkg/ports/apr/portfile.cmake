@@ -70,7 +70,7 @@ else()
         message(STATUS "Configuring apr")
     endif()
     set(ENV{CFLAGS} "$ENV{CFLAGS} -Wno-error=implicit-function-declaration")
-    vcpkg_make_configure(
+    vcpkg_configure_make(
         SOURCE_PATH "${SOURCE_PATH}"
         OPTIONS
             "--prefix=${CURRENT_INSTALLED_DIR}"
@@ -79,7 +79,7 @@ else()
             "${CONFIGURE_PARAMETER_3}"
     )
 
-    vcpkg_make_install()
+    vcpkg_install_make()
 
     if(NOT VCPKG_BUILD_TYPE)
         vcpkg_replace_string("${CURRENT_PACKAGES_DIR}/debug/lib/pkgconfig/apr-1.pc"

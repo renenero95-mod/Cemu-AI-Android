@@ -83,16 +83,16 @@ namespace snd_core
             __AXVoicesPerPriority[i].clear();
     }
 
-	CafeStaticVar<AXVPBInternal_t, AX_MAX_VOICES> _buffer__AXVPBInternalVoiceArray{g_sndStaticData};
+	SysAllocator<AXVPBInternal_t, AX_MAX_VOICES> _buffer__AXVPBInternalVoiceArray;
 	AXVPBInternal_t* __AXVPBInternalVoiceArray;
 
-	CafeStaticVar<AXVPBInternal_t, AX_MAX_VOICES> _buffer__AXVPBInternalVoiceShadowCopyArray{g_sndStaticData};
+	SysAllocator<AXVPBInternal_t, AX_MAX_VOICES> _buffer__AXVPBInternalVoiceShadowCopyArray;
 	AXVPBInternal_t* __AXVPBInternalVoiceShadowCopyArrayPtr; // this is the array used by audio mixing (it's synced at the beginning of every audio frame with __AXVPBInternalVoiceArray)
 
-	CafeStaticVar<AXVPBItd, AX_MAX_VOICES> _buffer__AXVPBItdArray{g_sndStaticData};
+	SysAllocator<AXVPBItd, AX_MAX_VOICES> _buffer__AXVPBItdArray;
 	AXVPBItd* __AXVPBItdArrayPtr;
 
-	CafeStaticVar<AXVPB, AX_MAX_VOICES> _buffer__AXVPBArray{g_sndStaticData};
+	SysAllocator<AXVPB, AX_MAX_VOICES> _buffer__AXVPBArray;
 	AXVPB* __AXVPBArrayPtr;
 
 	struct AXUSERPROTECTION
@@ -573,7 +573,7 @@ namespace snd_core
 		{
 			channelCount = AX_DRC_CHANNEL_COUNT;
 			voiceMix = internal->deviceMixDRC + deviceIndex * 16;
-			deviceMixMask = internal->deviceMixMaskDRC + deviceIndex * AX_BUS_COUNT;
+			deviceMixMask = internal->deviceMixMaskDRC;
 		}
 		else if (device == AX_DEV_RMT)
 		{

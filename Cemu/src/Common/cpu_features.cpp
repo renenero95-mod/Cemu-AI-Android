@@ -32,9 +32,78 @@ inline void cpuidex(int cpuInfo[4], int functionId, int subFunctionId) {
 }
 #endif
 
+#if defined(__aarch64__)
+#if BOOST_OS_LINUX
+std::string getCpuBrandNameLinux()
+{
+	static auto default_name = "unknown";
+	std::ifstream ifstream("/proc/device-tree/model");
+	if (!ifstream.is_open())
+		return default_name;
+	std::stringstream stringstream;
+	stringstream << ifstream.rdbuf();
+	std::string model = stringstream.str();
+	if (model.empty())
+		return default_name;
+	return model;
+}
+#if BOOST_PLAT_ANDROID
+
+#include <sys/system_properties.h>
+
+std::string getProperty(const std::string& name)
+{
+	const prop_info* pi = __system_property_find(name.c_str());
+	std::string propValue;
+	if (pi == nullptr)
+		return {};
+	__system_property_read_callback(
+		pi,
+		[](void* cookie, const char* name, const char* value, uint32_t serial) {
+			if (cookie == nullptr)
+				return;
+			*reinterpret_cast<std::string*>(cookie) = value;
+		},
+		&propValue);
+	return propValue;
+}
+
+std::string getCpuBrandNameAndroid()
+{
+	static auto propertiesNames = {
+		"ro.soc.manufacturer",
+		"ro.soc.model",
+		"ro.boot.hardware.revision",
+	};
+    std::string tmp;
+	for (auto&& propertyName : propertiesNames)
+	{
+		auto propertyValue = getProperty(propertyName);
+		if (!propertyValue.empty())
+        {
+            if (!tmp.empty())
+                tmp.append(", ");
+            tmp.append(propertyValue);
+        }
+	}
+	if (tmp.empty())
+		return getCpuBrandNameLinux();
+    return tmp;
+}
+#endif // BOOST_PLAT_ANDROID
+#endif // BOOST_OS_LINUX
+#endif // defined(__aarch64__)
 
 CPUFeaturesImpl::CPUFeaturesImpl()
 {
+#if defined(__aarch64__)
+#if BOOST_PLAT_ANDROID
+	m_cpuBrandName = getCpuBrandNameAndroid();
+#elif BOOST_OS_LINUX
+	m_cpuBrandName = getCpuBrandNameLinux();
+#endif
+#endif
+
 #if BOOST_OS_MACOS
 	std::string cpuName;
 	size_t size = 0;
@@ -61,34 +130,28 @@ CPUFeaturesImpl::CPUFeaturesImpl()
 	x86.aesni = ((cpuInfo[2] >> 25) & 1) != 0;
 	x86.ssse3 = ((cpuInfo[2] >> 9) & 1) != 0;
 	x86.sse4_1 = ((cpuInfo[2] >> 19) & 1) != 0;
-	uint32 family = ((cpuInfo[0] >> 8) & 0xF);
-	if (family == 0xF)
-		family += ((cpuInfo[0] >> 20) & 0xFF);
 	cpuidex(cpuInfo, 0x7, 0);
 	x86.avx2 = ((cpuInfo[1] >> 5) & 1) != 0;
 	x86.bmi2 = ((cpuInfo[1] >> 8) & 1) != 0;
-	// PEXT is slow on older AMD CPUs
-	cpuid(cpuInfo, 0);
-	const bool isIntel = cpuInfo[1] == 0x756E6547 && cpuInfo[3] == 0x49656E69 && cpuInfo[2] == 0x6C65746E; // "GenuineIntel"
-	const bool isAMD = cpuInfo[1] == 0x68747541 && cpuInfo[3] == 0x69746E65 && cpuInfo[2] == 0x444D4163; // "AuthenticAMD"
-	x86.fastPext = x86.bmi2 && (isIntel || (isAMD && family >= 0x19));
 	cpuid(cpuInfo, 0x80000007);
 	x86.invariant_tsc = ((cpuInfo[3] >> 8) & 1);
 	// get CPU brand name
 	uint32_t nExIds, i = 0;
-	memset(m_cpuBrandName, 0, sizeof(m_cpuBrandName));
+	char cpuBrandName[0x40]{ 0 };
+	memset(cpuBrandName, 0, sizeof(cpuBrandName));
 	cpuid(cpuInfo, 0x80000000);
 	nExIds = (uint32_t)cpuInfo[0];
 	for (uint32_t i = 0x80000000; i <= nExIds; ++i)
 	{
 		cpuid(cpuInfo, i);
 		if (i == 0x80000002)
-			memcpy(m_cpuBrandName, cpuInfo, sizeof(cpuInfo));
+			memcpy(cpuBrandName, cpuInfo, sizeof(cpuInfo));
 		else if (i == 0x80000003)
-			memcpy(m_cpuBrandName + 16, cpuInfo, sizeof(cpuInfo));
+			memcpy(cpuBrandName + 16, cpuInfo, sizeof(cpuInfo));
 		else if (i == 0x80000004)
-			memcpy(m_cpuBrandName + 32, cpuInfo, sizeof(cpuInfo));
+			memcpy(cpuBrandName + 32, cpuInfo, sizeof(cpuInfo));
 	}
+	m_cpuBrandName = cpuBrandName;
 #endif
 }
 

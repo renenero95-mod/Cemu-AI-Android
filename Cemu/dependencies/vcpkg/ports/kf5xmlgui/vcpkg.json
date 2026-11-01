@@ -1,8 +1,8 @@
 {
   "name": "kf5xmlgui",
-  "version": "5.116.0",
+  "version": "5.98.0",
   "description": "Framework for managing menu and toolbar actions",
-  "homepage": "https://api.kde.org/kxmlgui-index.html",
+  "homepage": "https://api.kde.org/frameworks/kxmlgui/html/index.html",
   "dependencies": [
     "ecm",
     "gettext",
@@ -31,10 +31,7 @@
       "name": "libiconv",
       "platform": "windows & static"
     },
-    {
-      "name": "qt5-base",
-      "default-features": false
-    },
+    "qt5-base",
     "qt5-tools",
     {
       "name": "vcpkg-cmake",

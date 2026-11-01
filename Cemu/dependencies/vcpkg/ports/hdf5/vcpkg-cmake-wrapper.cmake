@@ -14,5 +14,3 @@ if(CMAKE_VERSION VERSION_GREATER_EQUAL 3.3)
     cmake_policy(POP)
 endif()
 _find_package(${ARGS})
-# HDF5_ENABLE_PARALLEL is used by several ports.
-set (HDF5_ENABLE_PARALLEL "${HDF5_PROVIDES_PARALLEL}")

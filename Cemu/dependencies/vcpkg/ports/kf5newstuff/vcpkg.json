@@ -1,10 +1,8 @@
 {
   "name": "kf5newstuff",
-  "version": "5.116.0",
-  "port-version": 1,
+  "version": "5.98.0",
   "description": "Framework for downloading and sharing additional application data",
-  "homepage": "https://invent.kde.org/frameworks/knewstuff",
-  "documentation": "https://api.kde.org/knewstuff-index.html",
+  "homepage": "https://api.kde.org/frameworks/knewstuff/html/index.html",
   "dependencies": [
     "ecm",
     {
@@ -28,14 +26,7 @@
     "kf5textwidgets",
     "kf5widgetsaddons",
     "kf5xmlgui",
-    {
-      "name": "qt5-base",
-      "default-features": false
-    },
-    {
-      "name": "qt5-declarative",
-      "default-features": false
-    },
+    "qt5-base",
     "qt5-tools",
     {
       "name": "vcpkg-cmake",
@@ -45,10 +36,5 @@
       "name": "vcpkg-cmake-config",
       "host": true
     }
-  ],
-  "features": {
-    "designer-plugin": {
-      "description": "Build plugin for Qt Designer"
-    }
-  }
+  ]
 }

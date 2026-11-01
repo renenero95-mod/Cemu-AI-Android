@@ -22,14 +22,14 @@ if (VCPKG_TARGET_IS_ANDROID)
     list(APPEND OPTIONS ac_cv_func_realloc_0_nonnull=yes)
 endif()
 
-vcpkg_make_configure(
-    AUTORECONF
+vcpkg_configure_make(
+    AUTOCONFIG
     SOURCE_PATH ${SOURCE_PATH}
     COPY_SOURCE
     OPTIONS
         ${OPTIONS}
 )
-vcpkg_make_install()
+vcpkg_install_make()
 
 if(VCPKG_LIBRARY_LINKAGE STREQUAL static)
     file(REMOVE_RECURSE ${CURRENT_PACKAGES_DIR}/bin ${CURRENT_PACKAGES_DIR}/debug/bin)

@@ -9,8 +9,6 @@
       "default-features": false,
       "features": [
         "dds",
-        "df-vulkan",
-        "materialx",
         "openimageio"
       ]
     },

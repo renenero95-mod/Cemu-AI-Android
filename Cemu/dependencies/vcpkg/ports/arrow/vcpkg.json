@@ -1,7 +1,7 @@
 {
   "name": "arrow",
-  "version": "24.0.0",
-  "port-version": 1,
+  "version": "21.0.0",
+  "port-version": 2,
   "description": "Cross-language development platform for in-memory analytics",
   "homepage": "https://arrow.apache.org",
   "license": "Apache-2.0",
@@ -14,10 +14,6 @@
     "bzip2",
     "gflags",
     "lz4",
-    {
-      "name": "mimalloc",
-      "default-features": false
-    },
     "openssl",
     "re2",
     "snappy",

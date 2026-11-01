@@ -16,18 +16,17 @@ class DumpWindow;
 class ModuleWindow;
 class SymbolWindow;
 class wxStaticText;
-struct RPLStoredSymbol;
 
 wxDECLARE_EVENT(wxEVT_UPDATE_VIEW, wxCommandEvent);
 wxDECLARE_EVENT(wxEVT_BREAKPOINT_HIT, wxCommandEvent);
 wxDECLARE_EVENT(wxEVT_RUN, wxCommandEvent);
 wxDECLARE_EVENT(wxEVT_BREAKPOINT_CHANGE, wxCommandEvent);
-wxDECLARE_EVENT(wxEVT_MOVE_TO_DISASM_ADDR, wxCommandEvent);
+wxDECLARE_EVENT(wxEVT_MOVE_IP, wxCommandEvent);
 wxDECLARE_EVENT(wxEVT_NOTIFY_MODULE_LOADED, wxCommandEvent);
 wxDECLARE_EVENT(wxEVT_NOTIFY_MODULE_UNLOADED, wxCommandEvent);
 wxDECLARE_EVENT(wxEVT_NOTIFY_GRAPHIC_PACKS_MODIFIED, wxCommandEvent);
 
-extern class DebuggerWindow2* s_debuggerWindow;
+extern class DebuggerWindow2* g_debugger_window;
 
 struct DebuggerConfig
 {
@@ -50,38 +49,12 @@ struct DebuggerConfig
 };
 typedef XMLDataConfig<DebuggerConfig> XMLDebuggerConfig;
 
-struct DebuggerModuleInfo
-{
-	struct ModuleArea
-	{
-		MPTR base;
-		MPTR origBase;
-		uint32 size;
-
-		bool ContainsAddress(MPTR addr) const
-		{
-			return addr >= base && (addr < (base+size));
-		}
-
-		bool ContainsOriginalAddress(MPTR addr) const
-		{
-			return addr >= origBase && (addr < (origBase + size));
-		}
-	};
-
-	std::string moduleName;
-	uint32 patchCRC;
-	ModuleArea textArea;
-	ModuleArea dataArea;
-
-	DebuggerModuleInfo(RPLModule* module);
-};
-
 struct DebuggerModuleStorage
 {
-	DebuggerModuleInfo moduleInfo;
+	std::string module_name;
+	uint32_t crc_hash;
+	const RPLModule* rpl_module;
 	bool delete_breakpoints_after_saving;
-	std::vector<RPLStoredSymbol*> loaded_map_symbols;
 
 	void Load(XMLConfigParser& parser);
 	void Save(XMLConfigParser& parser);
@@ -100,11 +73,10 @@ class DebuggerWindow2 : public wxFrame, public DebuggerCallbacks
 {
 public:
 	void CreateToolBar();
-	void LoadModuleStorage(const struct DebuggerModuleInfo& moduleInfo);
-	void SaveModuleStorage(const struct DebuggerModuleInfo& moduleInfo, bool deleteModuleStorage);
+	void LoadModuleStorage(const RPLModule* module);
+	void SaveModuleStorage(const RPLModule* module, bool delete_breakpoints);
 	DebuggerWindow2(wxFrame& parent, const wxRect& display_size);
 	~DebuggerWindow2();
-	void CleanupForDestroy();
 
 	void OnParentMove(const wxPoint& position, const wxSize& size);
 	void OnGameLoaded();
@@ -125,7 +97,7 @@ private:
 	void OnExit(wxCommandEvent& event);
 	void OnShow(wxShowEvent& event);
 	void OnClose(wxCloseEvent& event);
-	void OnMoveToDisasmAddr(wxCommandEvent& event);
+	void OnMoveIP(wxCommandEvent& event);
 	void OnNotifyModuleLoaded(wxCommandEvent& event);
 	void OnNotifyModuleUnloaded(wxCommandEvent& event);
 	void OnNotifyGraphicPacksModified(wxCommandEvent& event);
@@ -134,20 +106,17 @@ private:
 
 	void CreateMenuBar();
 	void UpdateModuleLabel(uint32 address = 0);
-	void LoadModuleMap(DebuggerModuleStorage& moduleStorage);
-	void UnloadModuleMap(DebuggerModuleStorage& moduleStorage);
-	std::wstring GetModuleMapPath(std::string module_name, uint32_t crc_hash) const;
 
 	void UpdateViewThreadsafe() override;
 	void NotifyDebugBreakpointHit() override;
 	void NotifyRun() override;
-	void MoveToAddressInDisassembly(MPTR address) override;
+	void MoveIP() override;
+	void NotifyModuleLoaded(void* module) override;
 	void NotifyGraphicPacksModified() override;
-	void NotifyModuleLoaded(struct RPLModule* module) override;
-	void NotifyModuleUnloaded(struct RPLModule* module) override;
+	void NotifyModuleUnloaded(void* module) override;
 
 	XMLDebuggerConfig m_config;
-	std::vector<std::unique_ptr<XMLDebuggerModuleConfig>> m_modulesStorage;
+	std::vector<std::unique_ptr<XMLDebuggerModuleConfig>> m_modules_storage;
 
 	wxPoint m_main_position;
 	wxSize m_main_size;
@@ -160,14 +129,12 @@ private:
 
 	DisasmCtrl* m_disasm_ctrl;
 
-	void UpdateAppearance();
 	wxToolBar* m_toolbar;
 	wxBitmap m_run, m_pause;
 
 	uint32 m_module_address;
 	wxStaticText* m_module_label;
 
-	bool m_forceInterpreter{false};
 
 wxDECLARE_EVENT_TABLE();
 };

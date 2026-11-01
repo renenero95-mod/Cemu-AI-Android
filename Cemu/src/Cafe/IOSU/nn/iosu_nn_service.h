@@ -3,7 +3,6 @@
 #include "Cafe/IOSU/iosu_ipc_common.h"
 #include "Cafe/IOSU/iosu_types_common.h"
 #include "Cafe/OS/libs/nn_common.h"
-#include "Common/CafeStaticVar.h"
 
 namespace iosu
 {
@@ -13,14 +12,7 @@ namespace iosu
 		class IPCSimpleService
 		{
 		  public:
-			struct WorkArea // must be in guest memory. Provided by caller
-			{
-				WorkArea(IOSUStaticData& staticData) : _m_msgBuffer(staticData)
-				{}
-				CafeStaticVar<iosu::kernel::IOSMessage, 128> _m_msgBuffer;
-			};
-
-			IPCSimpleService(std::string_view devicePath, WorkArea& workArea) : m_devicePath(devicePath), m_workArea(workArea) {};
+			IPCSimpleService(std::string_view devicePath) : m_devicePath(devicePath) {};
 			virtual ~IPCSimpleService() {};
 
 			virtual void StartService() {};
@@ -78,7 +70,7 @@ namespace iosu
 			bool m_delayResponse{false};
 
 			IOSMsgQueueId m_msgQueueId;
-			WorkArea& m_workArea;
+			SysAllocator<iosu::kernel::IOSMessage, 128> _m_msgBuffer;
 		};
 
 		// a complex service interface which wraps Ioctlv and adds an additional service channel, used by /dev/act, /dev/acp_main, /dev/boss and most nn services
@@ -99,13 +91,6 @@ namespace iosu
 				uint32be nnResultCode;
 			};
 		public:
-			struct WorkArea // must be in guest memory. Provided by caller
-			{
-				WorkArea(IOSUStaticData& staticData) : _m_msgBuffer(staticData)
-				{}
-				CafeStaticVar<iosu::kernel::IOSMessage, 128> _m_msgBuffer;
-			};
-
 			class IPCParameterStream // input stream for parameters
 			{
 			public:
@@ -192,8 +177,6 @@ namespace iosu
 					T ReadType()
 					{
 						cemu_assert(!m_isOutput);
-						cemu_assert(headSize < 1024*1024*512 && middleSize < 1024*1024*512 && tailSize < 1024*1024*512);
-						cemu_assert((headSize + middleSize + tailSize) <= sizeof(T));
 						T v;
 						memcpy((uint8_t*)&v, headPtr, headSize);
 						memcpy((uint8_t*)&v + headSize, middlePtr, middleSize);
@@ -323,7 +306,7 @@ namespace iosu
 				sint8 m_outputBufferIndex{1};
 			};
 
-			IPCService(std::string_view devicePath, WorkArea& workArea) : m_devicePath(devicePath), m_workArea(workArea) {};
+			IPCService(std::string_view devicePath) : m_devicePath(devicePath) {};
 			virtual ~IPCService() {};
 
 			virtual IOSDevHandle CreateClientHandle()
@@ -355,7 +338,7 @@ namespace iosu
 			std::atomic_bool m_threadInitialized{ false };
 
 			IOSMsgQueueId m_msgQueueId;
-			WorkArea& m_workArea;
+			SysAllocator<iosu::kernel::IOSMessage, 128> _m_msgBuffer;
 		};
 
 	};

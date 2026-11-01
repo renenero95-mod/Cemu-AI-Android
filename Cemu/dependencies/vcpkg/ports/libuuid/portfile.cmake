@@ -5,8 +5,6 @@ vcpkg_from_sourceforge(
     REPO libuuid
     FILENAME "libuuid-${LIBUUID_VERSION}.tar.gz"
     SHA512 77488caccc66503f6f2ded7bdfc4d3bc2c20b24a8dc95b2051633c695e99ec27876ffbafe38269b939826e1fdb06eea328f07b796c9e0aaca12331a787175507
-    PATCHES
-        fix-usleep-with-nanosleep.patch
 )
 
 file(COPY

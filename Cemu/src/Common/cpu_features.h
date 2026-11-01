@@ -27,12 +27,11 @@ public:
 		bool lzcnt{ false };
 		bool movbe{ false };
 		bool bmi2{ false };
-		bool fastPext{ false }; // use PEXT instead of shifts and masks
 		bool aesni{ false };
 		bool invariant_tsc{ false };
 	}x86;
 private:
-	char m_cpuBrandName[0x40]{ 0 };
+	std::string m_cpuBrandName;
 };
 
 extern CPUFeaturesImpl g_CPUFeatures;

@@ -1,6 +1,6 @@
 {
   "name": "zug",
-  "version": "0.1.2",
+  "version-date": "2024-04-26",
   "description": "Transducers for C++",
   "homepage": "https://sinusoid.es/zug/",
   "dependencies": [

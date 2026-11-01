@@ -3,14 +3,12 @@
 #include "util/helpers/helpers.h"
 #include "Cafe/OS/libs/coreinit/coreinit_IPC.h"
 #include "util/highresolutiontimer/HighResolutionTimer.h"
-#include "Common/CafeStaticVar.h"
 
 namespace iosu
 {
 	namespace kernel
 	{
 		std::mutex sInternalMutex;
-		constinit IOSUStaticData s_kernelStaticData;
 
 		void IOS_DestroyResourceManagerForQueueId(IOSMsgQueueId msgQueueId);
 		void _IPCDestroyAllHandlesForMsgQueue(IOSMsgQueueId msgQueueId);
@@ -68,7 +66,6 @@ namespace iosu
 		{
 			std::unique_lock _l(sInternalMutex);
 			cemu_assert(messageCount != 0);
-			cemu_assert_debug(messageArray);
 			auto it = std::find_if(sMsgQueuePool.begin(), sMsgQueuePool.end(), [](const IOSMessageQueue& q) { return q.msgArraySize == 0; });
 			if (it == sMsgQueuePool.end())
 			{
@@ -393,13 +390,12 @@ namespace iosu
 			bool isAllocated{false};
 		};
 
-		CafeStaticVar<IOSDispatchableCommand, 96> sIPCDispatchableCommandPool{s_kernelStaticData};
+		SysAllocator<IOSDispatchableCommand, 96> sIPCDispatchableCommandPool;
 		std::queue<IOSDispatchableCommand*> sIPCFreeDispatchableCommands;
 		FSpinlock sIPCDispatchableCommandPoolLock;
 
 		void _IPCInitDispatchablePool()
 		{
-			cemu_assert_debug(sIPCDispatchableCommandPool.IsAllocated());
 			sIPCDispatchableCommandPoolLock.lock();
 			while (!sIPCFreeDispatchableCommands.empty())
 				sIPCFreeDispatchableCommands.pop();
@@ -461,6 +457,7 @@ namespace iosu
 				return IOS_ERROR_INVALID;
 			}
 			IOSMsgQueueId msgQueueId = resMgr->msgQueueId;
+			_lock.unlock();
 			// create new handle
 			sint32 deviceHandleIndex = -1;
 			for (size_t i = 0; i < MAX_NUM_ACTIVE_DEV_HANDLES; i++)
@@ -677,7 +674,6 @@ namespace iosu
 		{
 			// create a copy of the cmd
 			IOSDispatchableCommand* dispatchCmd = _IPCAllocateDispatchableCommand();
-			cemu_assert(dispatchCmd != nullptr);
 			dispatchCmd->body = *cmd;
 			dispatchCmd->originalBody = cmd;
 			dispatchCmd->ppcCoreIndex = ppcCoreIndex;
@@ -743,11 +739,11 @@ namespace iosu
 				{
 					cemuLog_log(LogType::Force, "IOS_ResourceReply(): Target device triggered an error on IOS_CLOSE");
 				}
-				// destroy the handle before replying so shutdown cannot send another Close for it
+				// reply, then destroy handle
 				IOSDevHandle devHandle = dispatchCmd->replyHandle;
+				_IPCReplyAndRelease(dispatchCmd, result);
 				IOS_ERROR r = _IPCDestroyResourceHandle(devHandle);
 				cemu_assert_debug(r == IOS_ERROR::IOS_ERROR_OK);
-				_IPCReplyAndRelease(dispatchCmd, result);
 				return IOS_ERROR_OK;
 			}
 			_IPCReplyAndRelease(dispatchCmd, result);
@@ -758,7 +754,6 @@ namespace iosu
 		{
 			void SystemLaunch() override
 			{
-				s_kernelStaticData.Allocate();
 				_IPCInitDispatchablePool();
 				// start timer thread
 				sTimerThreadStop = false;
@@ -773,7 +768,6 @@ namespace iosu
 				m_timerThread.join();
 				// reset resources
 				// todo
-				s_kernelStaticData.Deallocate();
 			}
 
 			std::thread m_timerThread;

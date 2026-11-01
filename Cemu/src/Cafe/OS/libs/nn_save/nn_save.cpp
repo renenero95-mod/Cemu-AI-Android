@@ -4,12 +4,13 @@
 #include "Cafe/OS/libs/nn_acp/nn_acp.h"
 #include "Cafe/OS/libs/nn_act/nn_act.h"
 
+#include <filesystem>
+#include <sstream>
 #include "config/ActiveSettings.h"
 #include "Cafe/OS/libs/coreinit/coreinit_Thread.h"
 #include "Cafe/OS/libs/coreinit/coreinit_FS.h"
 #include "Cafe/CafeSystem.h"
 #include "Cafe/Filesystem/fsc.h"
-
 
 #define SAVE_STATUS_OK ((FSStatus)FS_RESULT::SUCCESS)
 #define SAVE_MAX_PATH_SIZE (FSA_CMD_PATH_MAX_LENGTH)
@@ -26,8 +27,6 @@ namespace nn
 {
 namespace save
 {
-	constinit COSStaticData s_rplData;
-
 	typedef FSStatus SAVEStatus;
 
 	typedef struct
@@ -39,7 +38,7 @@ namespace save
 		uint32 persistentIdCache[0xC];
 	}nn_save_t;
 
-	CafeStaticVar<nn_save_t> g_nn_save{s_rplData};
+	SysAllocator<nn_save_t> g_nn_save;
 
 	uint32 GetPersistentIdFromLocalCache(uint8 accountSlot)
 	{
@@ -768,7 +767,7 @@ namespace save
 
     void ResetToDefaultState()
     {
-        if(g_nn_save.IsAllocated() && g_nn_save->initialized)
+        if(g_nn_save->initialized)
         {
             SAVEUnmountSaveDir();
             g_nn_save->initialized = false;
@@ -783,14 +782,8 @@ namespace save
 			return "nn_save";
 		}
 
-		void RPLUnmapped() override
-		{
-			s_rplData.Deallocate();
-		}
-
 		void RPLMapped() override
 		{
-			s_rplData.Allocate();
 			cafeExportRegister("nn_save", SAVEInit, LogType::Save);
 			cafeExportRegister("nn_save", SAVEInitSaveDir, LogType::Save);
 

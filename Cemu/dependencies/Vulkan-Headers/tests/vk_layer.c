@@ -1,14 +1,6 @@
-/*
- * Copyright 2022-2023 The Khronos Group Inc.
- * Copyright 2022-2023 Valve Corporation
- * Copyright 2022-2023 LunarG, Inc.
- *
- * SPDX-License-Identifier: Apache-2.0
- */
-
 #include "vulkan/vk_layer.h"
 
-int square(int i)
+int foobar()
 {
-    return i * i;
+    return 0;
 }

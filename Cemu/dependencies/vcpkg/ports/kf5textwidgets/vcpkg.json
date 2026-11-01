@@ -1,8 +1,8 @@
 {
   "name": "kf5textwidgets",
-  "version": "5.116.0",
+  "version": "5.98.0",
   "description": "Text editing widgets",
-  "homepage": "https://api.kde.org/ktextwidgets-index.html",
+  "homepage": "https://api.kde.org/frameworks/ktextwidgets/html/index.html",
   "dependencies": [
     "ecm",
     {
@@ -18,10 +18,7 @@
     "kf5i18n",
     "kf5sonnet",
     "kf5widgetsaddons",
-    {
-      "name": "qt5-base",
-      "default-features": false
-    },
+    "qt5-base",
     "qt5-tools",
     {
       "name": "vcpkg-cmake",

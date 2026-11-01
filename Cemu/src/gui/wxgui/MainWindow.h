@@ -76,7 +76,6 @@ public:
 	void UpdateNFCMenu();
 	bool IsMenuHidden() const;
 	void TogglePadView();
-	void OpenPPCDebugger();
 
 #if BOOST_OS_WINDOWS
 	WXLRESULT MSWWindowProc(WXUINT nMsg, WXWPARAM wParam, WXLPARAM lParam) override;
@@ -158,11 +157,8 @@ private:
 
 	// CafeSystem implementation
 	void CafeRecreateCanvas() override;
-	void CafePPCProcessExit() override;
 
-	void OnRequestRestart(wxCommandEvent& event);
 	void OnRequestRecreateCanvas(wxCommandEvent& event);
-	void OnRequestGameExit(wxCommandEvent& event);
 
 	wxRect GetDesktopRect();
 

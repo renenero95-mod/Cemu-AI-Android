@@ -9,6 +9,13 @@
     {
       "name": "gperftools",
       "features": [
+        "tools"
+      ],
+      "platform": "native"
+    },
+    {
+      "name": "gperftools",
+      "features": [
         "libunwind"
       ],
       "platform": "linux, osx"

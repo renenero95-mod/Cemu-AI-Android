@@ -17,13 +17,13 @@ if(VCPKG_TARGET_IS_WINDOWS)
     list(APPEND LIBEV_LINK_FLAGS "LDFLAGS=-no-undefined -lws2_32 \$LDFLAGS")
 endif()
 
-vcpkg_make_configure(
+vcpkg_configure_make(
     SOURCE_PATH "${SOURCE_PATH}"
-    AUTORECONF
+    AUTOCONFIG
     OPTIONS ${LIBEV_LINK_FLAGS}
 )
 
-vcpkg_make_install()
+vcpkg_install_make()
 
 file(REMOVE_RECURSE "${CURRENT_PACKAGES_DIR}/debug/share")
 

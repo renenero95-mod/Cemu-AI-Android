@@ -1,18 +1,15 @@
 {
   "name": "kf5codecs",
-  "version": "5.116.0",
+  "version": "5.98.0",
   "description": "String encoding library",
-  "homepage": "https://api.kde.org/kcodecs-index.html",
+  "homepage": "https://api.kde.org/frameworks/kcodecs/html/index.html",
   "dependencies": [
     "ecm",
     {
       "name": "gperf",
       "host": true
     },
-    {
-      "name": "qt5-base",
-      "default-features": false
-    },
+    "qt5-base",
     "qt5-tools",
     {
       "name": "vcpkg-cmake",

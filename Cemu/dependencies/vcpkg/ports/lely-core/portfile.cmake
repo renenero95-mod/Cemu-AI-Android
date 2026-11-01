@@ -11,16 +11,16 @@ vcpkg_from_gitlab(
     HEAD_REF master
 )
 
-vcpkg_make_configure(
+vcpkg_configure_make(
     SOURCE_PATH "${SOURCE_PATH}"
-    AUTORECONF
+    AUTOCONFIG
     OPTIONS 
         "--disable-cython"
         "--disable-python"
         "--disable-unit-tests"
         "--disable-tools"
 )
-vcpkg_make_install()
+vcpkg_install_make()
 
 vcpkg_fixup_pkgconfig()
 

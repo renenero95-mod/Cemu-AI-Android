@@ -1,6 +1,7 @@
 {
   "name": "materialx",
-  "version": "1.39.5",
+  "version": "1.39.1",
+  "port-version": 2,
   "description": "MaterialX is an open standard for the exchange of rich material and look-development content across applications and renderers.",
   "homepage": "https://www.materialx.org/",
   "license": "Apache-2.0",
@@ -26,8 +27,7 @@
       "description": "Build the OSL shader generator back-end."
     },
     "render": {
-      "description": "Build the MaterialX Render library.",
-      "supports": "!android"
+      "description": "Build the MaterialX Render library."
     }
   }
 }

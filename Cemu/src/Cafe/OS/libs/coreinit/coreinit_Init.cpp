@@ -2,8 +2,10 @@
 #include "Cafe/HW/Espresso/PPCCallback.h"
 #include "Cafe/OS/libs/coreinit/coreinit.h"
 #include "Cafe/OS/RPL/rpl.h"
+#include "Cafe/OS/libs/padscore/padscore.h"
 #include "Cafe/OS/libs/coreinit/coreinit_SysHeap.h"
 #include "Cafe/OS/libs/coreinit/coreinit_Alarm.h"
+#include "Cafe/OS/libs/vpad/vpad.h"
 #include "Cafe/OS/libs/coreinit/coreinit_GHS.h"
 #include "Cafe/OS/libs/coreinit/coreinit_DynLoad.h"
 #include "Cafe/OS/libs/coreinit/coreinit_MEM.h"
@@ -157,7 +159,7 @@ struct PreinitUserHeapStruct
 	MEMPTR<coreinit::MEMHeapBase> heapTempMEM2;
 };
 
-CafeStaticVar<PreinitUserHeapStruct> g_preinitUserParam{coreinit::g_coreinitStaticData};
+SysAllocator<PreinitUserHeapStruct> g_preinitUserParam;
 
 void InitCafeHeaps()
 {
@@ -198,14 +200,17 @@ sint32 _coreinitTitleEntryPoint;
 
 void coreinit_start(PPCInterpreter_t* hCPU)
 {
-	if (!_coreinitInfo)
-		_coreinitInfo = (coreinitInit_t*)memory_getPointerFromVirtualOffset(coreinit_allocFromSysArea(sizeof(coreinitInit_t), 32));
+	_coreinitInfo = (coreinitInit_t*)memory_getPointerFromVirtualOffset(coreinit_allocFromSysArea(sizeof(coreinitInit_t), 32));
 	memset(_coreinitInfo, 0, sizeof(coreinitInit_t));
 
 	CafeInit();
 	_coreinitTitleEntryPoint = CoreInitEntry(_coreinitInfo->argc, memory_getVirtualOffsetFromPointer(_coreinitInfo->argv));
 	
 	RPLLoader_CallEntrypoints();
+
+	// init vpadbase (todo - simulate entrypoints for HLE modules)
+	padscore::start();
+	vpad::start();
 
 	// call entry-type callbacks in graphic packs
 	for (const auto gp : GraphicPack2::GetActiveGraphicPacks())

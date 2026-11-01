@@ -1,6 +1,7 @@
 {
   "name": "tracy",
-  "version": "0.13.1",
+  "version": "0.11.1",
+  "port-version": 2,
   "description": "A real time, nanosecond resolution, remote telemetry, hybrid frame and sampling profiler for games and other applications.",
   "homepage": "https://github.com/wolfpld/tracy",
   "license": "BSD-3-Clause",
@@ -40,9 +41,12 @@
           "default-features": false,
           "platform": "!windows"
         },
-        "nlohmann-json",
-        "ppqsort",
-        "zstd"
+        "freetype",
+        "glfw3",
+        {
+          "name": "tbb",
+          "platform": "!windows"
+        }
       ]
     },
     "crash-handler": {
@@ -55,7 +59,6 @@
       "description": "Build Tracy GUI tool: `profiler` (aka `Tracy` executable)",
       "supports": "!(windows & x86)",
       "dependencies": [
-        "aklomp-base64",
         {
           "name": "capstone",
           "features": [
@@ -64,7 +67,6 @@
             "x86"
           ]
         },
-        "curl",
         {
           "name": "dbus",
           "default-features": false,
@@ -72,27 +74,17 @@
         },
         "freetype",
         "glfw3",
-        "md4c",
-        "nativefiledialog-extended",
-        "nlohmann-json",
-        "ppqsort",
-        "pugixml",
-        "tidy-html5",
         {
-          "name": "usearch",
-          "features": [
-            "fp16"
-          ]
-        },
-        "zstd"
+          "name": "tbb",
+          "platform": "!windows"
+        }
       ]
     },
     "on-demand": {
       "description": "Enable on-demand profiling"
     },
     "verbose": {
-      "description": "Enables verbose logging",
-      "supports": "!android"
+      "description": "Enables verbose logging"
     }
   }
 }

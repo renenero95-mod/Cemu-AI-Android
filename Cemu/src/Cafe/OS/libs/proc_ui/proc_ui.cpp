@@ -20,8 +20,6 @@ using namespace coreinit;
 
 namespace proc_ui
 {
-	constinit COSStaticData s_procuiStaticData;
-
 	enum class ProcUICoreThreadCommand
 	{
 		AcquireForeground = 0x0,
@@ -60,26 +58,26 @@ namespace proc_ui
 	MEMPTR<void> s_saveCallbackEx; // with custom param and return value, set by ProcUIInitEx()
 	MEMPTR<void> s_saveCallbackExUserParam;
 	MEMPTR<coreinit::OSMessageQueue> s_systemMessageQueuePtr;
-	CafeStaticVar<coreinit::OSEvent> s_eventStateMessageReceived{s_procuiStaticData};
-	CafeStaticVar<coreinit::OSEvent> s_eventWaitingBeforeReleaseForeground{s_procuiStaticData};
-	CafeStaticVar<coreinit::OSEvent> s_eventBackgroundThreadGotMessage{s_procuiStaticData};
+	SysAllocator<coreinit::OSEvent> s_eventStateMessageReceived;
+	SysAllocator<coreinit::OSEvent> s_eventWaitingBeforeReleaseForeground;
+	SysAllocator<coreinit::OSEvent> s_eventBackgroundThreadGotMessage;
 	// procUI core threads
 	uint32 s_coreThreadStackSize;
 	bool s_coreThreadsCreated;
 	std::atomic<ProcUICoreThreadCommand> s_commandForCoreThread;
-	CafeStaticVar<OSThread_t, Espresso::CORE_COUNT> s_coreThreadArray{s_procuiStaticData};
+	SysAllocator<OSThread_t> s_coreThreadArray[Espresso::CORE_COUNT];
 	MEMPTR<void> s_coreThreadStackPerCore[Espresso::CORE_COUNT];
-	CafeStaticVar<CafeString<22>> s_coreThread0NameBuffer{s_procuiStaticData};
-	CafeStaticVar<CafeString<22>> s_coreThread1NameBuffer{s_procuiStaticData};
-	CafeStaticVar<CafeString<22>> s_coreThread2NameBuffer{s_procuiStaticData};
-	CafeStaticVar<coreinit::OSEvent> s_eventCoreThreadsNewCommandReady{s_procuiStaticData};
-	CafeStaticVar<coreinit::OSEvent> s_eventCoreThreadsCommandDone{s_procuiStaticData};
-	CafeStaticVar<coreinit::OSRendezvous> s_coreThreadRendezvousA{s_procuiStaticData};
-	CafeStaticVar<coreinit::OSRendezvous> s_coreThreadRendezvousB{s_procuiStaticData};
-	CafeStaticVar<coreinit::OSRendezvous> s_coreThreadRendezvousC{s_procuiStaticData};
+	SysAllocator<CafeString<22>> s_coreThread0NameBuffer;
+	SysAllocator<CafeString<22>> s_coreThread1NameBuffer;
+	SysAllocator<CafeString<22>> s_coreThread2NameBuffer;
+	SysAllocator<coreinit::OSEvent> s_eventCoreThreadsNewCommandReady;
+	SysAllocator<coreinit::OSEvent> s_eventCoreThreadsCommandDone;
+	SysAllocator<coreinit::OSRendezvous> s_coreThreadRendezvousA;
+	SysAllocator<coreinit::OSRendezvous> s_coreThreadRendezvousB;
+	SysAllocator<coreinit::OSRendezvous> s_coreThreadRendezvousC;
 	// background thread
 	MEMPTR<void> s_backgroundThreadStack;
-	CafeStaticVar<OSThread_t> s_backgroundThread{s_procuiStaticData};
+	SysAllocator<OSThread_t> s_backgroundThread;
 	// user defined heap
 	MEMPTR<void> s_memoryPoolHeapPtr;
 	MEMPTR<void> s_memAllocPtr;
@@ -104,8 +102,8 @@ namespace proc_ui
 	uint32be s_driverArgUkn1;
 	uint32be s_driverArgUkn2;
 	bool s_driverInBackground;
-	CafeStaticVar<OSDriverInterface> s_ProcUIDriver{s_procuiStaticData};
-	CafeStaticVar<CafeString<16>> s_ProcUIDriverName{s_procuiStaticData};
+	SysAllocator<OSDriverInterface> s_ProcUIDriver;
+	SysAllocator<CafeString<16>> s_ProcUIDriverName;
 
 
 	void* _AllocMem(uint32 size)
@@ -357,8 +355,6 @@ namespace proc_ui
 	{
 		if (!s_isInitialized.exchange(false))
 			return;
-		if (!OSIsSchedulerActive())
-			return; // CafeSystem shutdown in progress, OS functions shouldn't be called anymore. reset() will clean up state on next re-init
 		if ( !s_isInForeground )
 			CancelBackgroundAlarms();
 		for (sint32 i = 0; i < Espresso::CORE_COUNT; i++)
@@ -778,7 +774,7 @@ namespace proc_ui
 			uint32be memBoundSize;
 			OSGetMemBound(1, &memBound, &memBoundSize);
 			OSBlockMove(memBound.GetPtr(), s_mem1StorageBasePtr, memBoundSize, true);
-			GX2::GX2Invalidate(GX2::GX2InvalidationFlag::CPU, s_mem1StorageBasePtr.GetMPTR(), memBoundSize);
+			GX2::GX2Invalidate(0x40, s_mem1StorageBasePtr.GetMPTR(), memBoundSize);
 		}
 		if (s_bucketStorageBasePtr)
 		{
@@ -786,7 +782,7 @@ namespace proc_ui
 			uint32be memBoundSize;
 			OSGetForegroundBucketFreeArea(&memBound, &memBoundSize);
 			OSBlockMove(memBound.GetPtr(), s_bucketStorageBasePtr, memBoundSize, true);
-			GX2::GX2Invalidate(GX2::GX2InvalidationFlag::CPU, memBound.GetMPTR(), memBoundSize);
+			GX2::GX2Invalidate(0x40, memBound.GetMPTR(), memBoundSize);
 		}
 	}
 
@@ -856,14 +852,8 @@ namespace proc_ui
 			return "proc_ui";
 		}
 
-		void RPLUnmapped() override
-		{
-			s_procuiStaticData.Deallocate();
-		}
-
 		void RPLMapped() override
 		{
-			s_procuiStaticData.Allocate();
 			reset();
 
 			cafeExportRegister("proc_ui", ProcUIInit, LogType::ProcUi);

@@ -27,11 +27,11 @@ else()
     if(VCPKG_TARGET_IS_MINGW)
         vcpkg_check_linkage(ONLY_STATIC_LIBRARY)
     endif()
-    vcpkg_make_configure(
+    vcpkg_configure_make(
         SOURCE_PATH "${SOURCE_PATH}"
-        AUTORECONF
+        AUTOCONFIG
     )
-    vcpkg_make_install()
+    vcpkg_install_make()
 endif()
 vcpkg_fixup_pkgconfig()
   

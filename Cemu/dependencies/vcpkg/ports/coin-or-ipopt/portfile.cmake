@@ -13,9 +13,9 @@ file(COPY "${CURRENT_INSTALLED_DIR}/share/coin-or-buildtools/" DESTINATION "${SO
 
 set(ENV{ACLOCAL} "aclocal -I \"${SOURCE_PATH}/BuildTools\"")
 
-vcpkg_make_configure(
+vcpkg_configure_make(
     SOURCE_PATH "${SOURCE_PATH}"
-    AUTORECONF
+    AUTOCONFIG
     OPTIONS
       #--with-pardiso
       --without-spral
@@ -29,11 +29,11 @@ vcpkg_make_configure(
       --disable-java
 )
 
-vcpkg_make_install()
+vcpkg_install_make()
 vcpkg_copy_pdbs()
 vcpkg_fixup_pkgconfig()
 
 file(REMOVE_RECURSE "${CURRENT_PACKAGES_DIR}/debug/include")
 file(REMOVE_RECURSE "${CURRENT_PACKAGES_DIR}/debug/share")
 
-vcpkg_install_copyright(FILE_LIST "${SOURCE_PATH}/LICENSE")
+file(INSTALL "${SOURCE_PATH}/LICENSE" DESTINATION "${CURRENT_PACKAGES_DIR}/share/${PORT}" RENAME copyright)

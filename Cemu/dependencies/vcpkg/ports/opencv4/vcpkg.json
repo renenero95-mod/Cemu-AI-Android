@@ -1,11 +1,10 @@
 {
   "name": "opencv4",
-  "version": "4.12.0",
-  "port-version": 3,
-  "description": "Open Source Computer Vision Library",
-  "homepage": "https://opencv.org/",
-  "documentation": "https://docs.opencv.org/4.12.0/",
-  "license": null,
+  "version": "4.11.0",
+  "port-version": 8,
+  "description": "computer vision library",
+  "homepage": "https://github.com/opencv/opencv",
+  "license": "Apache-2.0",
   "dependencies": [
     {
       "name": "cpu-features",
@@ -31,7 +30,10 @@
       "name": "directml",
       "platform": "windows & !uwp & !mingw"
     },
-    "dnn",
+    {
+      "name": "dnn",
+      "platform": "!android"
+    },
     {
       "name": "dshow",
       "platform": "windows & !uwp"
@@ -88,11 +90,19 @@
       "description": "opencv_contrib module",
       "dependencies": [
         {
+          "name": "hdf5",
+          "platform": "!uwp & !(windows & (arm | arm64)) & !ios"
+        },
+        {
           "name": "opencv4",
           "default-features": false,
           "features": [
             "calib3d"
           ]
+        },
+        {
+          "name": "tesseract",
+          "platform": "!uwp & !(windows & (arm | arm64)) & !ios"
         }
       ]
     },
@@ -134,6 +144,7 @@
     },
     "dnn": {
       "description": "Enable dnn module",
+      "supports": "!android",
       "dependencies": [
         "flatbuffers",
         {
@@ -167,7 +178,7 @@
     },
     "dshow": {
       "description": "Enable DirectShow",
-      "supports": "windows & !uwp"
+      "supports": "windows"
     },
     "eigen": {
       "description": "Eigen support for opencv",
@@ -254,19 +265,6 @@
         }
       ]
     },
-    "hdf": {
-      "description": "Enable Hierarchical Data Format (hdf) I/O",
-      "dependencies": [
-        "hdf5",
-        {
-          "name": "opencv4",
-          "default-features": false,
-          "features": [
-            "contrib"
-          ]
-        }
-      ]
-    },
     "highgui": {
       "description": "highgui module"
     },
@@ -298,6 +296,7 @@
     },
     "opencl": {
       "description": "Enable opencl support",
+      "supports": "!osx",
       "dependencies": [
         "opencl"
       ]
@@ -463,19 +462,6 @@
         "tbb"
       ]
     },
-    "text": {
-      "description": "Enable Scene Text Detection and Recognition",
-      "dependencies": [
-        {
-          "name": "opencv4",
-          "default-features": false,
-          "features": [
-            "contrib"
-          ]
-        },
-        "tesseract"
-      ]
-    },
     "thread": {
       "description": "Enable thread support"
     },
@@ -512,8 +498,7 @@
           "features": [
             "dnn"
           ]
-        },
-        "vulkan-headers"
+        }
       ]
     },
     "webp": {

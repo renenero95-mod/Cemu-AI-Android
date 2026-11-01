@@ -29,7 +29,6 @@ struct MetalPixelFormatInfo {
     Uvec2 blockTexelSize = {1, 1};
     bool hasStencil = false;
     TextureDecoder* textureDecoder = nullptr;
-    bool isAlternateFormat = false; // if true then pixel format does not match Latte 1:1
 };
 
 void CheckForPixelFormatSupport(const MetalPixelFormatSupport& support);
@@ -66,9 +65,9 @@ size_t GetMtlTextureBytesPerImage(Latte::E_GX2SURFFMT format, bool isDepth, uint
 
 MTL::PrimitiveType GetMtlPrimitiveType(LattePrimitiveMode primitiveMode);
 
-MTL::VertexFormat GetMtlVertexFormat(Latte::E_HWFMT format);
+MTL::VertexFormat GetMtlVertexFormat(uint8 format);
 
-uint32 GetMtlVertexFormatSize(Latte::E_HWFMT format);
+uint32 GetMtlVertexFormatSize(uint8 format);
 
 MTL::IndexType GetMtlIndexType(Renderer::INDEX_TYPE indexType);
 

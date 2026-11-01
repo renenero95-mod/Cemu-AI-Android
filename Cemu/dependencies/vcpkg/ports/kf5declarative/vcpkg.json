@@ -1,8 +1,8 @@
 {
   "name": "kf5declarative",
-  "version": "5.116.0",
+  "version": "5.98.0",
   "description": "Integration of QML and KDE work spaces",
-  "homepage": "https://api.kde.org/kdeclarative-index.html",
+  "homepage": "https://api.kde.org/frameworks/kdeclarative/html/index.html",
   "dependencies": [
     "ecm",
     {
@@ -25,10 +25,7 @@
     "kf5package",
     "kf5widgetsaddons",
     "kf5windowsystem",
-    {
-      "name": "qt5-base",
-      "default-features": false
-    },
+    "qt5-base",
     "qt5-tools",
     {
       "name": "vcpkg-cmake",

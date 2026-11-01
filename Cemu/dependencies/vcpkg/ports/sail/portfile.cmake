@@ -7,7 +7,6 @@ vcpkg_from_github(
     PATCHES
         fix-heif.patch
         fix-include-directory.patch
-        no-binary-dependencies-install.diff
 )
 
 # Enable selected codecs

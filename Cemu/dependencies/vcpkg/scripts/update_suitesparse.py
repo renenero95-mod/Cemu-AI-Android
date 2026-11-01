@@ -64,9 +64,7 @@ def update_manifest(pkg_name, version):
     if manifest["version-semver"] == version:
         return False
     manifest["version-semver"] = version
-    if "port-version" in manifest:
-        del manifest["port-version"]
-    manifest_path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8", newline="\n")
+    manifest_path.write_text(json.dumps(manifest, indent=2) + "\n")
     return True
 
 
@@ -74,13 +72,13 @@ def update_portfile(pkg_name, new_version, new_hash):
     port_dir = ports_root / pkg_name
     portfile_path = port_dir / "portfile.cmake"
     content = portfile_path.read_text("utf8")
-    content, n = re.subn(r"\bREF v\S+", f"REF v{new_version}", content, flags=re.M)
+    content, n = re.subn(r"\bREF v\S+", f"REF v{new_version}", content, re.M)
     if n != 1:
         raise Exception(f"Updating {pkg_name} portfile ref failed!")
-    content, n = re.subn(r"\bSHA512 \S+", f"SHA512 {new_hash}", content, flags=re.M)
+    content, n = re.subn(r"\bSHA512 \S+", f"SHA512 {new_hash}", content, re.M)
     if n != 1:
         raise Exception(f"Updating {pkg_name} portfile hash failed!")
-    portfile_path.write_text(content, newline="\n")
+    portfile_path.write_text(content)
 
 
 def update_port(pkg_name, new_version, suitesparse_hash):

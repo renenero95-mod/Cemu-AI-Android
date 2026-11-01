@@ -1,9 +1,3 @@
-<!--
-Copyright 2018-2023 The Khronos Group Inc.
-
-SPDX-License-Identifier: Apache-2.0
--->
-
 # Build Instructions
 
 Instructions for building this repository.
@@ -41,6 +35,8 @@ indicated by *install_dir*:
 find_package(VulkanHeaders REQUIRED CONFIG)
 
 target_link_libraries(foobar PRIVATE Vulkan::Headers)
+
+message(STATUS "Vulkan Headers Registry: ${VULKAN_HEADERS_REGISTRY_DIRECTORY}")
 
 message(STATUS "Vulkan Headers Version: ${VulkanHeaders_VERSION}")
 ```

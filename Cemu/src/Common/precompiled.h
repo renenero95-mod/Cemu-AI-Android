@@ -84,6 +84,61 @@
 #include <glm/gtc/quaternion.hpp>
 
 namespace fs = std::filesystem;
+#if BOOST_PLAT_ANDROID
+#include "Common/android/FilesystemAndroid.h"
+#endif // BOOST_PLAT_ANDROID
+
+namespace cemu::fs
+{
+inline bool is_directory(const std::filesystem::path& p)
+{
+#if BOOST_PLAT_ANDROID
+    if (FilesystemAndroid::IsContentUri(p))
+        return FilesystemAndroid::IsDirectory(p);
+#endif
+    return std::filesystem::is_directory(p);
+}
+inline bool is_directory(const std::filesystem::path& p, std::error_code& ec)
+{
+#if BOOST_PLAT_ANDROID
+    if (FilesystemAndroid::IsContentUri(p))
+        return FilesystemAndroid::IsDirectory(p);
+#endif
+    return std::filesystem::is_directory(p, ec);
+}
+inline bool is_file(const std::filesystem::path& p)
+{
+#if BOOST_PLAT_ANDROID
+    if (FilesystemAndroid::IsContentUri(p))
+        return FilesystemAndroid::IsFile(p);
+#endif
+    return std::filesystem::is_regular_file(p);
+}
+inline bool is_file(const std::filesystem::path& p, std::error_code& ec)
+{
+#if BOOST_PLAT_ANDROID
+    if (FilesystemAndroid::IsContentUri(p))
+        return FilesystemAndroid::IsFile(p);
+#endif
+    return std::filesystem::is_regular_file(p, ec);
+}
+inline bool exists(const std::filesystem::path& p)
+{
+#if BOOST_PLAT_ANDROID
+    if (FilesystemAndroid::IsContentUri(p))
+        return FilesystemAndroid::Exists(p);
+#endif
+    return std::filesystem::exists(p);
+}
+inline bool exists(const std::filesystem::path& p, std::error_code& ec)
+{
+#if BOOST_PLAT_ANDROID
+    if (FilesystemAndroid::IsContentUri(p))
+        return FilesystemAndroid::Exists(p);
+#endif
+    return std::filesystem::exists(p, ec);
+}
+}  // namespace cemu::fs
 
 #include "enumFlags.h"
 
@@ -357,7 +412,7 @@ FORCE_INLINE int BSF(uint32 v) // returns index of first bit set, counting from 
 
 inline void _mm_pause()
 {
-    asm volatile("yield");
+    asm volatile("isb sy");
 }
 
 inline uint64 __rdtsc()
@@ -624,7 +679,7 @@ inline uint32 GetTitleIdLow(uint64 titleId)
 #include "Cafe/HW/Espresso/PPCCallback.h"
 
 // PPC stack trace printer
-void DebugLogStackTrace(struct OSThread_t* thread, MPTR sp);
+void DebugLogStackTrace(struct OSThread_t* thread, MPTR sp, bool printSymbols = false);
 
 // generic formatter for enums (to underlying)
 template <typename Enum>

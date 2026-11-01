@@ -9,7 +9,6 @@ set(${PORT}_PATCHES "")
         qml
         qmlaotstats
         qmlcachegen
-        qmlcontextpropertydump
         qmleasing
         qmlformat
         qmlimportscanner

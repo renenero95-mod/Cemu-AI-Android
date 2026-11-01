@@ -12,7 +12,7 @@ vcpkg_from_github(
       cgns-scoped-enum.patch
       downstream-fixes.patch
       add_filesystem.patch
-      occt-compat.patch
+      occ-78.patch
       142.diff
       cross-build.patch
 )

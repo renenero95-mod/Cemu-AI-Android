@@ -1,14 +1,11 @@
 {
   "name": "kf5syntaxhighlighting",
-  "version": "5.116.0",
+  "version": "5.98.0",
   "description": "Syntax highlighting engine for Kate syntax definitions",
-  "homepage": "https://api.kde.org/ksyntaxhighlighting-index.html",
+  "homepage": "https://github.com/KDE/syntax-highlighting",
   "dependencies": [
     "ecm",
-    {
-      "name": "qt5-base",
-      "default-features": false
-    },
+    "qt5-base",
     "qt5-tools",
     "qt5-xmlpatterns",
     {

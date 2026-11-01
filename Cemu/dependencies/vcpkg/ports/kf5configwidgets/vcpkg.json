@@ -1,8 +1,8 @@
 {
   "name": "kf5configwidgets",
-  "version": "5.116.0",
+  "version": "5.98.0",
   "description": "Widgets for configuration dialogs",
-  "homepage": "https://api.kde.org/kconfigwidgets-index.html",
+  "homepage": "https://api.kde.org/frameworks/kconfigwidgets/html/index.html",
   "dependencies": [
     "ecm",
     {
@@ -22,10 +22,7 @@
     "kf5guiaddons",
     "kf5i18n",
     "kf5widgetsaddons",
-    {
-      "name": "qt5-base",
-      "default-features": false
-    },
+    "qt5-base",
     "qt5-tools",
     {
       "name": "vcpkg-cmake",

@@ -1,6 +1,6 @@
 {
   "name": "nlohmann-fifo-map",
-  "version": "1.0.1",
+  "version": "1.0.0",
   "description": "a FIFO-ordered associative container for C++",
   "homepage": "https://github.com/nlohmann/fifo_map",
   "dependencies": [

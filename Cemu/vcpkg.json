@@ -12,8 +12,8 @@
     },
     "rapidjson",
     {
-      "name": "sdl3",
-      "default-features": false
+      "name": "sdl2",
+      "platform": "!android"
     },
     "boost-tokenizer",
     "boost-container",
@@ -27,11 +27,28 @@
     "boost-ptr-container",
     "boost-property-tree",
     "boost-static-string",
+    {
+      "name": "boost-iostreams",
+      "platform": "android"
+    },
+    {
+      "name": "boost-stacktrace",
+      "platform": "android"
+    },
+    {
+      "name": "boost-context",
+      "platform": "android"
+    },
     "boost-random",
+    {
+      "name": "hidapi",
+      "platform": "!android"
+    },
     {
       "name": "fmt",
       "version>=": "12.1.0"
     },
+    "hidapi",
     "libpng",
     "glm",
     {
@@ -41,10 +58,7 @@
     "zstd",
     {
       "name": "wxwidgets",
-      "default-features": false,
-      "features": [
-        "debug-support"
-      ]
+      "platform": "!android"
     },
     "openssl",
     {
@@ -71,16 +85,20 @@
   ],
   "overrides": [
     {
+      "name": "fmt",
+      "version": "12.1.0"
+    },
+    {
       "name": "glslang",
       "version": "15.1.0"
     },
     {
-      "name": "sdl3",
-      "version": "3.4.10"
+      "name": "sdl2",
+      "version": "2.32.10"
     },
     {
       "name": "wxwidgets",
-      "version": "3.3.3"
+      "version": "3.3.1"
     }
   ]
 }

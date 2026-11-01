@@ -1,14 +1,11 @@
 #include "Cafe/OS/common/OSCommon.h"
 #include "Cafe/OS/libs/TCL/TCL.h"
+
 #include "HW/Latte/Core/LattePM4.h"
-#include "OS/libs/coreinit/coreinit_Time.h"
-#include "Common/CafeStaticVar.h"
 
 namespace TCL
 {
-	constinit COSStaticData s_rplData;
-
-	CafeStaticVar<coreinit::OSEvent> s_updateRetirementEvent{s_rplData};
+	SysAllocator<coreinit::OSEvent> s_updateRetirementEvent;
 	uint64 s_currentRetireMarker = 0;
 
 	struct TCLStatePPC // mapped into PPC space
@@ -16,13 +13,11 @@ namespace TCL
 		uint64be gpuRetireMarker; // written by GPU
 	};
 
-	CafeStaticVar<TCLStatePPC> s_tclStatePPC{s_rplData};
+	SysAllocator<TCLStatePPC> s_tclStatePPC;
 
 	// called from GPU for timestamp EOP event
 	void TCLGPUNotifyNewRetirementTimestamp()
 	{
-		if (!s_updateRetirementEvent.IsAllocated())
-			return;
 		// gpuRetireMarker is updated via event eop command
 		__OSLockScheduler();
 		coreinit::OSSignalEventAllInternal(s_updateRetirementEvent.GetPtr());
@@ -96,7 +91,7 @@ namespace TCL
 				distance = TCL_RING_BUFFER_SIZE;
 			if (distance >= numU32s + 1) // assume distance minus one, because we are never allowed to completely wrap around
 				break;
-			coreinit::OSSleepTicks(coreinit::EspressoTime::ConvertNsToTimerTicks(500000)); // sleep 0.5ms
+			_mm_pause();
 		}
 	}
 
@@ -169,16 +164,8 @@ namespace TCL
 			return "tcl";
 		}
 
-		void RPLUnmapped() override
-		{
-			s_rplData.Deallocate();
-		}
-
 		void RPLMapped() override
 		{
-			tclRingBufferA_readIndex = 0;
-			tclRingBufferA_writeIndex = 0;
-			s_rplData.Allocate();
 			cafeExportRegister("TCL", TCLSubmitToRing, LogType::Placeholder);
 			cafeExportRegister("TCL", TCLTimestamp, LogType::Placeholder);
 			cafeExportRegister("TCL", TCLWaitTimestamp, LogType::Placeholder);

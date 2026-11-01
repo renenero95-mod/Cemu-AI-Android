@@ -2,7 +2,6 @@
 #include "Cafe/OS/RPL/rpl_symbol_storage.h"
 #include "Cafe/HW/Espresso/Debugger/Debugger.h"
 #include <wx/listctrl.h>
-#include <wx/clipbrd.h>
 
 enum ItemColumns
 {
@@ -39,12 +38,13 @@ SymbolListCtrl::SymbolListCtrl(wxWindow* parent, const wxWindowID& id, const wxP
 	m_list_filter.Clear();
 
 	OnGameLoaded();
+
+	SetItemCount(m_data.size());
 }
 
 void SymbolListCtrl::OnGameLoaded()
 {
 	m_data.clear();
-	m_visible_items.clear();
 	const auto symbol_map = rplSymbolStorage_lockSymbolMap();
 	for (auto const& [address, symbol_info] : symbol_map)
 	{
@@ -56,30 +56,48 @@ void SymbolListCtrl::OnGameLoaded()
 		wxString searchNameWX = libNameWX + symbolNameWX;
 		searchNameWX.MakeLower();
 
-		m_data.try_emplace(
-			address,
-			symbolNameWX,
+		auto new_entry = m_data.try_emplace(
+			symbol_info->address,
+            symbolNameWX,
 			libNameWX,
-			searchNameWX
+            searchNameWX,
+			false
 		);
+
+		if (m_list_filter.IsEmpty())
+			new_entry.first->second.visible = true;
+		else if (new_entry.first->second.searchName.Contains(m_list_filter))
+			new_entry.first->second.visible = true;
 	}
 	rplSymbolStorage_unlockSymbolMap();
 
-	RebuildVisibleItems();
+	SetItemCount(m_data.size());
+	if (m_data.size() > 0)
+		RefreshItems(GetTopItem(), std::min<long>(m_data.size() - 1, GetTopItem() + GetCountPerPage() + 1));
 }
 
 wxString SymbolListCtrl::OnGetItemText(long item, long column) const
 {
-	if (item < 0 || item >= static_cast<long>(m_visible_items.size()))
+	if (item >= GetItemCount())
 		return wxEmptyString;
 
-	const auto& [address, symbol] = *m_visible_items[item];
-	if (column == ColumnName)
-		return symbol.name;
-	if (column == ColumnAddress)
-		return wxString::Format("%08x", address);
-	if (column == ColumnModule)
-		return symbol.libName;
+	long visible_idx = 0;
+	for (const auto& [address, symbol] : m_data)
+	{
+		if (!symbol.visible)
+			continue;
+
+		if (item == visible_idx)
+		{
+			if (column == ColumnName)
+				return wxString(symbol.name);
+			if (column == ColumnAddress)
+				return wxString::Format("%08x", address);
+			if (column == ColumnModule)
+				return wxString(symbol.libName);
+		}
+		visible_idx++;
+	}
 
 	return wxEmptyString;
 }
@@ -88,51 +106,59 @@ wxString SymbolListCtrl::OnGetItemText(long item, long column) const
 void SymbolListCtrl::OnLeftDClick(wxListEvent& event)
 {
 	long selected = GetFirstSelected();
-	if (selected == wxNOT_FOUND || selected >= static_cast<long>(m_visible_items.size()))
+	if (selected == wxNOT_FOUND)
 		return;
-	const auto address = m_visible_items[selected]->first;
+	const auto text = GetItemText(selected, ColumnAddress);
+	const auto address = std::stoul(text.ToStdString(), nullptr, 16);
 	if (address == 0)
 		return;
-	debugger_jumpToAddressInDisasm(address);
+	debuggerState.debugSession.instructionPointer = address;
+	g_debuggerDispatcher.MoveIP();
 }
 
 void SymbolListCtrl::OnRightClick(wxListEvent& event)
 {
 	long selected = GetFirstSelected();
-	if (selected == wxNOT_FOUND || selected >= static_cast<long>(m_visible_items.size()))
+	if (selected == wxNOT_FOUND)
 		return;
-	if (wxClipboard::Get()->Open())
+	auto text = GetItemText(selected, ColumnAddress);
+	text = "0x" + text;
+#if BOOST_OS_WINDOWS
+	if (OpenClipboard(nullptr))
 	{
-		wxClipboard::Get()->SetData(new wxTextDataObject(wxString::Format("0x%08x", m_visible_items[selected]->first)));
-		wxClipboard::Get()->Close();
-	}
-}
+		EmptyClipboard();
+		const HGLOBAL hGlobal = GlobalAlloc(GMEM_MOVEABLE, text.size()+1);
+		if (hGlobal)
+		{
+			memcpy(GlobalLock(hGlobal), text.c_str(), text.size() + 1);
+			GlobalUnlock(hGlobal);
 
-void SymbolListCtrl::RebuildVisibleItems()
-{
-	m_visible_items.clear();
-	m_visible_items.reserve(m_data.size());
-	const bool has_filter = !m_list_filter.IsEmpty();
-	for (auto it = m_data.cbegin(); it != m_data.cend(); ++it)
-	{
-		if (has_filter && !it->second.searchName.Contains(m_list_filter))
-			continue;
-
-		m_visible_items.emplace_back(it);
+			SetClipboardData(CF_TEXT, hGlobal);
+			GlobalFree(hGlobal);
+		}
+		CloseClipboard();
 	}
-
-	SetItemCount(static_cast<long>(m_visible_items.size()));
-	if (!m_visible_items.empty())
-	{
-		const auto top_item = std::min<long>(GetTopItem(), static_cast<long>(m_visible_items.size() - 1));
-		RefreshItems(top_item, std::min<long>(static_cast<long>(m_visible_items.size() - 1), top_item + GetCountPerPage() + 1));
-	}
-	else
-		Refresh();
+#endif
 }
 
 void SymbolListCtrl::ChangeListFilter(wxString filter)
 {
 	m_list_filter = filter.MakeLower();
-	RebuildVisibleItems();
+
+	size_t visible_entries = m_data.size();
+	for (auto& [address, symbol] : m_data)
+	{
+		if (m_list_filter.IsEmpty())
+			symbol.visible = true;
+		else if (symbol.searchName.Contains(m_list_filter))
+			symbol.visible = true;
+		else
+		{
+			visible_entries--;
+			symbol.visible = false;
+		}
+	}
+	SetItemCount(visible_entries);
+	if (visible_entries > 0)
+		RefreshItems(GetTopItem(), std::min<long>(visible_entries - 1, GetTopItem() + GetCountPerPage() + 1));
 }

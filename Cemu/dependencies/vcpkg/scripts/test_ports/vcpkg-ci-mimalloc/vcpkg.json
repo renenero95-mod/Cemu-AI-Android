@@ -1,6 +1,6 @@
 {
   "name": "vcpkg-ci-mimalloc",
-  "version": "3.2.6",
+  "version": "2.2.3",
   "description": "Validates mimalloc",
   "dependencies": [
     "mimalloc",
@@ -9,36 +9,23 @@
       "host": true
     }
   ],
-  "default-features": [
-    {
-      "name": "override",
-      "platform": "native | (windows & !static)"
-    },
-    {
-      "name": "secure",
-      "platform": "native"
-    }
-  ],
   "features": {
-    "override": {
-      "description": "Test override feature",
+    "ci": {
+      "description": "Test feature permutation",
       "dependencies": [
         {
           "name": "mimalloc",
           "features": [
             "override"
-          ]
-        }
-      ]
-    },
-    "secure": {
-      "description": "Test secure feature",
-      "dependencies": [
+          ],
+          "platform": "native & !(windows & static)"
+        },
         {
           "name": "mimalloc",
           "features": [
             "secure"
-          ]
+          ],
+          "platform": "arm64 & static"
         }
       ]
     }

@@ -1,6 +1,6 @@
 {
   "name": "bitserializer",
-  "version": "0.85",
+  "version": "0.80",
   "description": "Multi-format serialization library (JSON, XML, YAML, CSV, MsgPack)",
   "homepage": "https://github.com/PavelKisliak/BitSerializer",
   "license": "MIT",

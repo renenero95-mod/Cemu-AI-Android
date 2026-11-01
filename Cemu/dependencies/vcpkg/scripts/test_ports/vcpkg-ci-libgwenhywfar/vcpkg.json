@@ -19,7 +19,7 @@
     },
     {
       "name": "qt5",
-      "platform": "native | (x64 & windows)"
+      "platform": "!(osx & static)"
     }
   ],
   "features": {

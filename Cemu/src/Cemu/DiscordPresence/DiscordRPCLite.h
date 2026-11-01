@@ -9,13 +9,6 @@
 
 struct DiscordLiteRichPresence
 {
-	enum StatusDisplayType : int8_t
-	{
-		StatusDisplayType_Name = 0,
-		StatusDisplayType_State = 1,
-		StatusDisplayType_Details = 2,
-	};
-
 	std::string state;
 	std::string details;
 	int64_t startTimestamp;
@@ -32,7 +25,6 @@ struct DiscordLiteRichPresence
 	std::string joinSecret;
 	std::string spectateSecret;
 	int8_t instance;
-	int8_t statusDisplayType = StatusDisplayType_Name;
 };
 
 class DiscordRPCLite

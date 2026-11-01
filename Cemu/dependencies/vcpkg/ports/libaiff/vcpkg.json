@@ -1,9 +1,9 @@
 {
   "name": "libaiff",
   "version": "5.0",
-  "port-version": 10,
+  "port-version": 9,
   "description": "LibAiff is an open-source library, providing C applications transparent read & write operations for Audio Interchange File Format (AIFF) files, with the goal of supporting all of its features",
-  "homepage": "https://aifftools.sourceforge.net",
+  "homepage": "https://sourceforge.net/projects/aifftools",
   "dependencies": [
     {
       "name": "vcpkg-cmake",

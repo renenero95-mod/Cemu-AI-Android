@@ -6,7 +6,6 @@ vcpkg_from_github(
     HEAD_REF master
     PATCHES
         fix-dependencies.patch
-        link-log-on-android.patch
 )
 
 foreach(_cmake_module

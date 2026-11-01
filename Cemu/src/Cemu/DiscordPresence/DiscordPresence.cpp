@@ -28,8 +28,8 @@ void DiscordPresence::UpdatePresence(State state, const std::string& text) const
 		stateString = "";
 		break;
 	case Playing:
-		detailsString = text;
-		stateString = "Playing";
+		detailsString = "Ingame";
+		stateString = "Playing " + text;
 		break;
 	default:
 		assert(false);
@@ -37,8 +37,6 @@ void DiscordPresence::UpdatePresence(State state, const std::string& text) const
 	}
 	discordPresence.details = detailsString;
 	discordPresence.state = stateString;
-	if (state == Playing)
-		discordPresence.statusDisplayType = DiscordLiteRichPresence::StatusDisplayType_Details;
 	discordPresence.startTimestamp = time(nullptr);
 	discordPresence.largeImageText = BUILD_VERSION_WITH_NAME_STRING;
 	discordPresence.largeImageKey = "logo_icon_big_png";

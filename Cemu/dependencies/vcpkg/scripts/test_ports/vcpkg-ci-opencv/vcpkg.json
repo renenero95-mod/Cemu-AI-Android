@@ -18,7 +18,6 @@
         "intrinsics",
         "jpeg",
         "nonfree",
-        "openjpeg",
         "png",
         "quirc",
         "thread",
@@ -37,15 +36,18 @@
       "name": "opencv",
       "default-features": false,
       "features": [
-        "freetype",
-        "gdcm",
-        "hdf",
-        "openexr",
-        "qt",
-        "sfm",
-        "text"
+        "jpegxl",
+        "openexr"
       ],
       "platform": "!uwp"
+    },
+    {
+      "name": "opencv",
+      "default-features": false,
+      "features": [
+        "opencl"
+      ],
+      "platform": "!uwp & !osx"
     },
     {
       "name": "opencv",
@@ -71,22 +73,6 @@
       "name": "opencv",
       "default-features": false,
       "features": [
-        "jpegxl"
-      ],
-      "platform": "!(android & arm32)"
-    },
-    {
-      "name": "opencv",
-      "default-features": false,
-      "features": [
-        "opencl"
-      ],
-      "platform": "!osx & !uwp"
-    },
-    {
-      "name": "opencv",
-      "default-features": false,
-      "features": [
         "tbb"
       ],
       "platform": "!uwp & !static"
@@ -95,29 +81,10 @@
       "name": "opencv",
       "default-features": false,
       "features": [
-        "aravis",
-        "vtk",
-        "vulkan"
-      ],
-      "platform": "!android & !uwp"
-    },
-    {
-      "name": "opencv",
-      "default-features": false,
-      "features": [
-        "ipp"
-      ],
-      "platform": "(x86 | x64) & (linux | windows)"
-    },
-    {
-      "name": "opencv",
-      "default-features": false,
-      "features": [
         "gapi",
-        "gstreamer",
-        "ovis"
+        "gstreamer"
       ],
-      "platform": "!android & !uwp & !(windows & static)"
+      "platform": "!uwp & !(windows & static) & !android"
     },
     {
       "name": "opencv",
@@ -125,7 +92,15 @@
       "features": [
         "python"
       ],
-      "platform": "!android & !linux & !uwp & !(windows & static)"
+      "platform": "!uwp & !(windows & static) & !android & !linux"
+    },
+    {
+      "name": "opencv",
+      "default-features": false,
+      "features": [
+        "ovis"
+      ],
+      "platform": "!uwp & !android & !(windows & static)"
     },
     {
       "name": "opencv",
@@ -138,18 +113,48 @@
       "platform": "(windows & x64 & !uwp) | (linux & x64) | (linux & arm64)"
     },
     {
+      "name": "opencv",
+      "default-features": false,
+      "features": [
+        "freetype",
+        "gdcm",
+        "ipp",
+        "openjpeg",
+        "qt",
+        "sfm",
+        "vtk",
+        "vulkan"
+      ],
+      "platform": "!uwp & !android & !(windows & (arm | arm64)) & !(osx & arm64)"
+    },
+    {
+      "name": "opencv",
+      "default-features": false,
+      "features": [
+        "aravis"
+      ],
+      "platform": "!android & !uwp"
+    },
+    {
       "name": "opencv2",
       "default-features": false,
       "features": [
         "eigen",
-        "jasper",
         "jpeg",
-        "opengl",
         "png",
-        "qt",
         "tiff"
       ],
-      "platform": "!android & !windows"
+      "platform": "!uwp & !(arm & windows) & !android"
+    },
+    {
+      "name": "opencv2",
+      "default-features": false,
+      "features": [
+        "jasper",
+        "opengl",
+        "qt"
+      ],
+      "platform": "!uwp & !android & !(windows & (arm | arm64))"
     },
     {
       "name": "opencv3",
@@ -196,7 +201,7 @@
       "features": [
         "gstreamer"
       ],
-      "platform": "!android & !uwp & !(windows & static)"
+      "platform": "!uwp & !android & !(windows & static)"
     },
     {
       "name": "opencv3",
@@ -212,7 +217,7 @@
         "sfm",
         "vtk"
       ],
-      "platform": "!android & !osx & !uwp & !(windows & arm)"
+      "platform": "!uwp & !android & !(windows & (arm | arm64)) & !(osx & arm64)"
     }
   ]
 }

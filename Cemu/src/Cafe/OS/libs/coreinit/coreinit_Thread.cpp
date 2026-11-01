@@ -4,7 +4,6 @@
 #include "Cafe/OS/libs/coreinit/coreinit_Thread.h"
 #include "Cafe/OS/libs/coreinit/coreinit_Time.h"
 #include "Cafe/OS/libs/coreinit/coreinit_Alarm.h"
-#include "Cafe/OS/libs/coreinit/coreinit_GHS.h"
 #include "Cafe/OS/libs/snd_core/ax.h"
 #include "Cafe/HW/Espresso/Debugger/GDBStub.h"
 #include "Cafe/HW/Espresso/Interpreter/PPCInterpreterInternal.h"
@@ -24,20 +23,23 @@
 #endif
 #endif
 
-static void ConfigureHostFloatingPointEnvironment()
+namespace {
+
+void enableFlushDenormalsToZero()
 {
 #if defined(ARCH_X86_64)
 	_mm_setcsr(_mm_getcsr() | 0x8000);
 #elif defined(__arm64__)
-	// enable flush-to-zero and preserve NaN signs and payloads (FZ=1, DN=0)
 #if defined(__clang__)
-	__arm_wsr64("fpcr", (__arm_rsr64("fpcr") | (1 << 24)) & ~(1 << 25));
+	__arm_wsr64("fpcr", __arm_rsr64("fpcr") | (1 << 24));
 #elif defined(__GNUC__)
-	__builtin_aarch64_set_fpcr((__builtin_aarch64_get_fpcr() | (1 << 24)) & ~(1 << 25));
+	__builtin_aarch64_set_fpcr(__builtin_aarch64_get_fpcr() | (1 << 24));
 #elif defined(_MSC_VER)
-	_WriteStatusReg(ARM64_FPCR, (_ReadStatusReg(ARM64_FPCR) | (1 << 24)) & ~(1 << 25));
+	_WriteStatusReg(ARM64_FPCR, _ReadStatusReg(ARM64_FPCR) | (1 << 24));
 #endif
 #endif
+}
+
 }
 
 SlimRWLock srwlock_activeThreadList;
@@ -66,9 +68,9 @@ namespace coreinit
 	std::vector<std::thread> sSchedulerThreads;
 	std::mutex sSchedulerStateMtx;
 
-	CafeStaticVar<OSThreadQueue> g_activeThreadQueue{coreinit::g_coreinitStaticData}; // list of all threads (can include non-detached inactive threads)
+	SysAllocator<OSThreadQueue> g_activeThreadQueue; // list of all threads (can include non-detached inactive threads)
 
-	CafeStaticVar<OSThreadQueue, 3> g_coreRunQueue{coreinit::g_coreinitStaticData};
+	SysAllocator<OSThreadQueue, 3> g_coreRunQueue;
 	CounterSemaphore g_coreRunQueueThreadCount[3];
 
 	bool g_isMulticoreMode;
@@ -91,6 +93,42 @@ namespace coreinit
 		PPCInterpreter_t ppcInstance;
 		uint32 selectedCore;
 	};
+
+	void SuspendActiveThreads()
+	{
+		if (activeThreadCount == 0)
+		{
+			return;
+		}
+
+		__OSLockScheduler();
+
+		for (sint32 i = 0; i < activeThreadCount; i++)
+		{
+			auto thread = reinterpret_cast<OSThread_t*>(memory_getPointerFromVirtualOffset(activeThread[i]));
+			__OSSuspendThreadNolock(thread);
+		}
+
+		__OSUnlockScheduler();
+	}
+
+	void ResumeActiveThreads()
+	{
+		if (activeThreadCount == 0)
+		{
+			return;
+		}
+
+		__OSLockScheduler();
+
+		for (sint32 i = 0; i < activeThreadCount; i++)
+		{
+			auto thread = reinterpret_cast<OSThread_t*>(memory_getPointerFromVirtualOffset(activeThread[i]));
+			__OSResumeThreadInternal(thread, 1);
+		}
+
+		__OSUnlockScheduler();
+	}
 
 	std::unordered_map<OSThread_t*, OSHostThread*> s_threadToFiber;
 
@@ -188,7 +226,6 @@ namespace coreinit
 		cemu_assert_debug(thread->state == OSThread_t::THREAD_STATE::STATE_NONE);
 		thread->id = 0x8000;
 
-		__OSTLSFreeForThread(thread);
 		__OSDeleteHostThread(thread);
 	}
 
@@ -196,17 +233,17 @@ namespace coreinit
 	{
 		cemu_assert_debug(__OSHasSchedulerLock());
 		MPTR threadMPTR = memory_getVirtualOffsetFromPointer(thread);
-		srwlock_activeThreadList.LockRead();
+		srwlock_activeThreadList.LockWrite();
 		bool isRunable = false;
 		for (sint32 i = 0; i < activeThreadCount; i++)
 		{
 			if (activeThread[i] == threadMPTR)
 			{
-				srwlock_activeThreadList.UnlockRead();
+				srwlock_activeThreadList.UnlockWrite();
 				return true;
 			}
 		}
-		srwlock_activeThreadList.UnlockRead();
+		srwlock_activeThreadList.UnlockWrite();
 		return false;
 	}
 
@@ -322,7 +359,7 @@ namespace coreinit
 		thread->waitingForMutex = nullptr;
 		memset(&thread->crt, 0, sizeof(thread->crt));
 		static_assert(sizeof(thread->crt) == 0x1D8);
-		thread->tlsBlocks = nullptr;
+		thread->tlsBlocksMPTR = 0;
 		thread->numAllocatedTLSBlocks = 0;
 		thread->tlsStatus = 0;
 		OSInitThreadQueueEx(&thread->joinQueue, thread);
@@ -971,7 +1008,7 @@ namespace coreinit
 	{
 		if (newPriority < 0 || newPriority >= 0x20)
 		{
-			cemuLog_log(LogType::APIErrors, "OSSetThreadPriority: Thread priority must be in range 0-31");
+			cemu_assert_debug(false);
 			return false; // invalid priority value
 		}
 		__OSLockScheduler();
@@ -1265,14 +1302,6 @@ namespace coreinit
 				}
 				__OSUnlockScheduler();
 			}
-			else
-			{
-				// [OPTIMIZATION] Aggiunta una pausa di yielding cooperativo leggero (es. __builtin_arm_yield o simile via semaforo) 
-				// per evitare il consumo intensivo di CPU al 100% (polling attivo) sui core quando non ci sono thread pronti, 
-				// preservando la batteria e riducendo il throttling termico sullo Snapdragon 8 Gen 2.
-				g_coreRunQueueThreadCount[coreIndex].waitUntilNonZero();
-			}
-
 			if (isMainCore)
 			{
 				__OSCheckSystemEvents();
@@ -1355,7 +1384,7 @@ namespace coreinit
 #endif
 		OSHostThread* hostThread = (OSHostThread*)_thread;
 
-		ConfigureHostFloatingPointEnvironment();
+		enableFlushDenormalsToZero();
 
 		PPCInterpreter_t* hCPU = &hostThread->ppcInstance;
 		__OSLoadThread(hostThread->m_thread, hCPU, hostThread->selectedCore);
@@ -1402,7 +1431,7 @@ namespace coreinit
 		SetThreadName(fmt::format("OSSched[core={}]", (uintptr_t)_assignedCoreIndex).c_str());
 		t_assignedCoreIndex = (sint32)(uintptr_t)_assignedCoreIndex;
 
-		ConfigureHostFloatingPointEnvironment();
+		enableFlushDenormalsToZero();
 
 #if BOOST_OS_LINUX
 		if (g_gdbstub)
@@ -1490,13 +1519,8 @@ namespace coreinit
 		s_threadToFiber.clear();
 	}
 
-	bool OSIsSchedulerActive()
-	{
-		return sSchedulerActive;
-	}
-
-	CafeStaticVar<OSThread_t, PPC_CORE_COUNT> s_defaultThreads{coreinit::g_coreinitStaticData};
-	CafeStaticVar<uint8, PPC_CORE_COUNT * 1024 * 1024> s_stack{coreinit::g_coreinitStaticData};
+	SysAllocator<OSThread_t, PPC_CORE_COUNT> s_defaultThreads;
+	SysAllocator<uint8, PPC_CORE_COUNT * 1024 * 1024> s_stack;
 
 	OSThread_t* OSGetDefaultThread(sint32 coreIndex)
 	{
@@ -1542,10 +1566,10 @@ namespace coreinit
 			MEMPTR<void> deallocatorFunc;
 		};
 
-		CafeStaticVar<OSThread_t> terminatorThread{coreinit::g_coreinitStaticData};
-		CafeStaticVar<uint8, 16 * 1024> threadStack{coreinit::g_coreinitStaticData};
-		CafeStaticVar<char, 64> threadName{coreinit::g_coreinitStaticData};
-		CafeStaticVar<OSSemaphore> semaphoreQueuedDeallocators{coreinit::g_coreinitStaticData};
+		SysAllocator<OSThread_t> terminatorThread;
+		SysAllocator<uint8, 16 * 1024> threadStack;
+		SysAllocator<char, 64> threadName;
+		SysAllocator<OSSemaphore> semaphoreQueuedDeallocators;
 		ConcurrentQueue<DeallocatorQueueEntry> queueDeallocators;
 	};
 
@@ -1577,7 +1601,6 @@ namespace coreinit
 	{
 		for (sint32 i = 0; i < PPC_CORE_COUNT; i++)
 		{
-			s_terminatorThreads[i].queueDeallocators.clear();
 			OSInitSemaphore(s_terminatorThreads[i].semaphoreQueuedDeallocators.GetPtr(), 0);
 			sprintf(s_terminatorThreads[i].threadName.GetPtr(), "{SYS Thread Terminator Core %d}", i);
 			OSCreateThreadType(s_terminatorThreads[i].terminatorThread.GetPtr(), PPCInterpreter_makeCallableExportDepr(__OSTerminatorThreadFunc), 0, nullptr, (uint8*)s_terminatorThreads[i].threadStack.GetPtr() + s_terminatorThreads[i].threadStack.GetByteSize(), (sint32)s_terminatorThreads[i].threadStack.GetByteSize(), 0, 1 << i, OSThread_t::THREAD_TYPE::TYPE_IO);
@@ -1586,18 +1609,18 @@ namespace coreinit
 		}
 	}
 
-	CafeStaticVar<std::array<char, 64>, PPC_CORE_COUNT> _defaultThreadName{coreinit::g_coreinitStaticData};
+	SysAllocator<char, 64> _defaultThreadName[PPC_CORE_COUNT];
 
 	void __OSInitDefaultThreads()
 	{
 		for (sint32 i = 0; i < PPC_CORE_COUNT; i++)
 		{
-			sprintf(_defaultThreadName[i].data(), "Default Core %d", i);
+			sprintf(_defaultThreadName[i].GetPtr(), "Default Core %d", i);
 			OSThread_t* coreDefaultThread = coreinit::OSGetDefaultThread(i);
 			uint32 stackSize;
 			void* stackBase = coreinit::OSGetDefaultThreadStack(i, stackSize);
 			coreinit::OSCreateThreadType(coreDefaultThread, MPTR_NULL, 0, nullptr, (uint8*)stackBase + stackSize, stackSize, 16, 1 << i, OSThread_t::THREAD_TYPE::TYPE_APP);
-			coreinit::OSSetThreadName(coreDefaultThread, _defaultThreadName[i].data());
+			coreinit::OSSetThreadName(coreDefaultThread, _defaultThreadName[i].GetPtr());
 		}
 	}
 
@@ -1651,10 +1674,7 @@ namespace coreinit
 	{
 		OSInitThreadQueue(g_activeThreadQueue.GetPtr());
 		for (sint32 i = 0; i < Espresso::CORE_COUNT; i++)
-		{
-			g_coreRunQueueThreadCount[i].reset();
 			OSInitThreadQueue(g_coreRunQueue.GetPtr() + i);
-		}
 		for (sint32 i = 0; i < Espresso::CORE_COUNT; i++)
 			__currentCoreThread[i] = nullptr;
 		__OSInitDefaultThreads();

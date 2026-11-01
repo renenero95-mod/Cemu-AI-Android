@@ -1,9 +1,7 @@
 #include "Cafe/GameProfile/GameProfile.h"
 #include "Cafe/IOSU/legacy/iosu_crypto.h"
 #include "Cafe/HW/Latte/Core/Latte.h"
-#ifdef ENABLE_VULKAN
 #include "Cafe/HW/Latte/Renderer/Vulkan/VulkanAPI.h"
-#endif
 #include "Cafe/CafeSystem.h"
 #include "Cemu/Logging/CemuLogging.h"
 #include "config/ActiveSettings.h"
@@ -108,28 +106,12 @@ bool ActiveSettings::WaitForGX2DrawDoneEnabled()
 
 GraphicAPI ActiveSettings::GetGraphicsAPI()
 {
-	const GraphicAPI api = g_current_game_profile->GetGraphicsAPI().value_or(GetConfig().graphic_api);
-	std::optional<GraphicAPI> fallbackAPI;
-#ifdef ENABLE_VULKAN
-	if (g_vulkan_available)
-	{
-		if (api == kVulkan)
-			return api;
-		fallbackAPI = kVulkan;
-	}
-#endif
-#ifdef ENABLE_METAL
-	if (api == kMetal)
-		return api;
-	fallbackAPI = fallbackAPI.value_or(kMetal);
-#endif
-#ifdef ENABLE_OPENGL
-	if (api == kOpenGL)
-		return api;
-	fallbackAPI = fallbackAPI.value_or(kOpenGL);
-#endif
-	cemu_assert(fallbackAPI.has_value());
-	return *fallbackAPI;
+	GraphicAPI api = g_current_game_profile->GetGraphicsAPI().value_or(GetConfig().graphic_api);
+	// check if vulkan even available
+	if (api == kVulkan && !g_vulkan_available)
+		api = kOpenGL;
+	
+	return api;
 }
 
 float ActiveSettings::GetTVGamma()
@@ -301,3 +283,14 @@ fs::path ActiveSettings::GetDefaultMLCPath()
 	return GetUserDataPath("mlc01");
 }
 
+#if BOOST_PLAT_ANDROID
+void ActiveSettings::SetNativeLibPath(const fs::path& nativeLibPath)
+{
+	s_native_lib_path = nativeLibPath;
+}
+
+void ActiveSettings::SetInternalDir(const fs::path& internalDirPath)
+{
+	s_internal_dir_path = internalDirPath;
+}
+#endif

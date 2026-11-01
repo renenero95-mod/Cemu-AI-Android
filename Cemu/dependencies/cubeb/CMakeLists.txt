@@ -1,7 +1,8 @@
 # TODO
 # - backend selection via command line, rather than simply detecting headers.
 
-cmake_minimum_required(VERSION 3.14 FATAL_ERROR)
+cmake_minimum_required(VERSION 3.15 FATAL_ERROR)
+cmake_policy(SET CMP0091 NEW)
 project(cubeb
   VERSION 0.0.0)
 
@@ -12,6 +13,10 @@ option(BUILD_TOOLS "Build tools" ON)
 option(BUNDLE_SPEEX "Bundle the speex library" OFF)
 option(LAZY_LOAD_LIBS "Lazily load shared libraries" ON)
 option(USE_SANITIZERS "Use sanitizers" ON)
+option(USE_STATIC_MSVC_RUNTIME "Use /MT instead of /MD in MSVC" OFF)
+if(USE_STATIC_MSVC_RUNTIME)
+    set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+endif()
 
 if(NOT CMAKE_BUILD_TYPE)
   set(CMAKE_BUILD_TYPE "RelWithDebInfo" CACHE STRING
@@ -19,8 +24,9 @@ if(NOT CMAKE_BUILD_TYPE)
 endif()
 
 set(CMAKE_C_STANDARD 99)
-set(CMAKE_CXX_STANDARD 11)
+set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 if(USE_SANITIZERS)
   if(NOT COMMAND add_sanitizers)
@@ -77,6 +83,7 @@ endif()
 
 add_library(cubeb
   src/cubeb.c
+  src/cubeb_audio_dump.cpp
   src/cubeb_mixer.cpp
   src/cubeb_resampler.cpp
   src/cubeb_log.cpp
@@ -277,7 +284,7 @@ endif()
 check_include_files(SLES/OpenSLES.h USE_OPENSL)
 if(USE_OPENSL)
   target_sources(cubeb PRIVATE
-    src/cubeb_opensl.c
+    src/cubeb_opensl.cpp
     src/cubeb-jni.cpp)
   target_compile_definitions(cubeb PRIVATE USE_OPENSL)
   target_link_libraries(cubeb PRIVATE OpenSLES)
@@ -337,7 +344,7 @@ if(USE_PULSE AND USE_PULSE_RUST)
     cubeb_pulse_rs
     DOWNLOAD_COMMAND ""
     CONFIGURE_COMMAND ""
-    BUILD_COMMAND cargo build COMMAND cargo build --release
+    BUILD_COMMAND cargo build --features=gecko-in-tree COMMAND cargo build --release --features=gecko-in-tree
     BUILD_ALWAYS ON
     BINARY_DIR "${PROJECT_SOURCE_DIR}/src/cubeb-pulse-rs"
     INSTALL_COMMAND ""
@@ -356,7 +363,7 @@ if(USE_AUDIOUNIT AND USE_AUDIOUNIT_RUST)
     cubeb_coreaudio_rs
     DOWNLOAD_COMMAND ""
     CONFIGURE_COMMAND ""
-    BUILD_COMMAND cargo build COMMAND cargo build --release
+    BUILD_COMMAND cargo build --features=gecko-in-tree COMMAND cargo build --release --features=gecko-in-tree
     BUILD_ALWAYS ON
     BINARY_DIR "${PROJECT_SOURCE_DIR}/src/cubeb-coreaudio-rs"
     INSTALL_COMMAND ""
@@ -405,6 +412,7 @@ if(BUILD_TESTS)
   cubeb_add_test(duplex)
   cubeb_add_test(logging)
   cubeb_add_test(triple_buffer)
+  cubeb_add_test(audio_dump)
 
   if (USE_WASAPI)
     cubeb_add_test(overload_callback)
@@ -427,14 +435,19 @@ if(BUILD_TOOLS)
   install(TARGETS cubeb-test)
 endif()
 
+if(NOT CLANG_FORMAT_BINARY)
+set(CLANG_FORMAT_BINARY clang-format)
+endif()
+
 add_custom_target(clang-format-check
   find
     ${CMAKE_CURRENT_SOURCE_DIR}/src
     ${CMAKE_CURRENT_SOURCE_DIR}/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/test
     -type f (-name "*.cpp" -o -name "*.c" -o -name "*.h")
     -not -path "*/subprojects/speex/*"
     -print0
-  | xargs -0 clang-format -Werror -n
+  | xargs -0 ${CLANG_FORMAT_BINARY} -Werror -n
   COMMENT "Check formatting with clang-format"
   VERBATIM)
 

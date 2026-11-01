@@ -159,8 +159,6 @@ namespace nn
 
 			void RPLMapped() override
 			{
-				sAocCache.clear();
-				sAocCacheGenerated = false;
 				cafeExportRegister("nn_aoc", AOC_CalculateWorkBufferSize, LogType::NN_AOC);
 				cafeExportRegister("nn_aoc", AOC_ListTitle, LogType::NN_AOC);
 

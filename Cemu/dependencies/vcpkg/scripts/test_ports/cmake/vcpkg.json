@@ -32,8 +32,7 @@
       "default-features": false,
       "features": [
         "widgets"
-      ],
-      "platform": "!(arm & linux)"
+      ]
     },
     "rhash",
     {

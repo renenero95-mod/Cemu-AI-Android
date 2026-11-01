@@ -17,14 +17,14 @@ if(VCPKG_TARGET_IS_WINDOWS AND NOT VCPKG_TARGET_IS_MINGW)
     list(APPEND EXTRA_OPTS "LIBS=-lgetopt \$LIBS")
 endif()
 
-vcpkg_make_configure(
+vcpkg_configure_make(
     SOURCE_PATH "${SOURCE_PATH}"
-    AUTORECONF
+    AUTOCONFIG
     OPTIONS
         ${EXTRA_OPTS}
 )
 
-vcpkg_make_install()
+vcpkg_install_make()
 
 file(REMOVE_RECURSE "${CURRENT_PACKAGES_DIR}/debug/share")
 vcpkg_install_copyright(FILE_LIST "${SOURCE_PATH}/LICENSE.md")

@@ -374,7 +374,7 @@ function(vcpkg_configure_make)
         find_program(base_cmd bash REQUIRED)
     endif()
 
-    # Apple platforms - cross-compiling support
+   # Apple platforms - cross-compiling support
     if(VCPKG_TARGET_IS_APPLE)
         if (requires_autoconfig AND NOT arg_BUILD_TRIPLET OR arg_DETERMINE_BUILD_TRIPLET)
             z_vcpkg_determine_autotools_host_arch_mac(BUILD_ARCH) # machine you are building on => --build=
@@ -391,8 +391,8 @@ function(vcpkg_configure_make)
         endif()
     endif()
 
-    # Linux / BSD / Solaris - cross-compiling support
-    if(VCPKG_TARGET_IS_LINUX OR VCPKG_TARGET_IS_BSD OR VCPKG_TARGET_IS_SOLARIS)
+    # Linux - cross-compiling support
+    if(VCPKG_TARGET_IS_LINUX)
         if (requires_autoconfig AND NOT arg_BUILD_TRIPLET OR arg_DETERMINE_BUILD_TRIPLET)
             # The regex below takes the prefix from the resulting CMAKE_C_COMPILER variable eg. arm-linux-gnueabihf-gcc
             # set in the common toolchains/linux.cmake
@@ -830,8 +830,7 @@ function(vcpkg_configure_make)
             set(ENV{ARFLAGS} "${ARFLAGS_${current_buildtype}}")
         endif()
 
-        set(env_cc_backup "$ENV{CC}")
-        if(VCPKG_TARGET_IS_APPLE)
+        if(VCPKG_TARGET_IS_OSX OR VCPKG_TARGET_IS_IOS)
             # configure not using all flags to check if compiler works ...
             set(ENV{CC} "$ENV{CC} $ENV{CPPFLAGS} $ENV{CFLAGS}")
             set(ENV{CC_FOR_BUILD} "$ENV{CC_FOR_BUILD} $ENV{CPPFLAGS} $ENV{CFLAGS}")
@@ -889,9 +888,6 @@ function(vcpkg_configure_make)
             set(ENV{PATH} "${path_backup}")
         endif()
         # Restore environment (config dependent)
-        if(VCPKG_TARGET_IS_APPLE)
-            set(ENV{CC} "${env_cc_backup}")
-        endif()
         foreach(ENV_VAR IN LISTS ${arg_CONFIG_DEPENDENT_ENVIRONMENT})
             if(backup_config_${ENV_VAR})
                 set(ENV{${ENV_VAR}} "${backup_config_${ENV_VAR}}")

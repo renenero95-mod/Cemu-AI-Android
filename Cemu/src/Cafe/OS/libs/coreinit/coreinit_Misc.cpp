@@ -4,7 +4,6 @@
 #include "Cafe/OS/libs/coreinit/coreinit_OSScreen.h"
 #include "Cafe/CafeSystem.h"
 #include "Cafe/Filesystem/fsc.h"
-#include "config/LaunchSettings.h"
 #include <pugixml.hpp>
 
 namespace coreinit
@@ -545,7 +544,6 @@ namespace coreinit
 	}
 
 	std::mutex sCafeConsoleMutex;
-	bool s_forwardConsoleLogs;
 	
 	void WriteCafeConsole(CafeLogType cafeLogType, const char* msg, sint32 len)
 	{
@@ -558,14 +556,6 @@ namespace coreinit
 			cafeLogBuffer.lineLength = 0;
 		};
 
-		if (s_forwardConsoleLogs) {
-			if (cafeLogType == CafeLogType::OSCONSOLE) {
-				fwrite(msg, 1, len, stdout);
-				fflush(stdout);
-			} else {
-				fwrite(msg, 1, len, stderr);
-			}
-		}
 		while (len)
 		{
 			char c = *msg;
@@ -694,18 +684,13 @@ namespace coreinit
 		return s_sdkVersion;
 	}
 
+	// move this to CafeSystem.cpp?
 	void OSLauncherThread(uint64 titleId)
 	{
 		CafeSystem::ShutdownTitle();
 		CafeSystem::PrepareForegroundTitle(titleId);
 		CafeSystem::RequestRecreateCanvas();
 		CafeSystem::LaunchForegroundTitle();
-	}
-
-	void OSShutdownThread(sint32 status)
-	{
-		CafeSystem::ShutdownTitle();
-		CafeSystem::NotifyPPCProcessExit(status);
 	}
 
 	uint32 __LaunchByTitleId(uint64 titleId, uint32 argc, MEMPTR<char>* argv)
@@ -857,31 +842,10 @@ namespace coreinit
 		return 0;
 	}
 
-	void __PPCExit(sint32 status)
-	{
-		// spawn shutdown thread (the current thread has to be destroyed as part of the shutdown process)
-		std::thread shutdownThread(OSShutdownThread, status);
-		shutdownThread.detach();
-		// suspend this thread
-		coreinit::OSSuspendThread(coreinit::OSGetCurrentThread());
-	}
-
-	void coreinit_exit(sint32 status)
-	{
-		cemuLog_log(LogType::Force, "The title terminated the process by calling coreinit.exit({})", (sint32)status);
-		DebugLogStackTrace(coreinit::OSGetCurrentThread(), coreinit::OSGetStackPointer());
-		if (gCoreinitData->__atexit_cleanup)
-			PPCCoreCallback(gCoreinitData->__atexit_cleanup, status);
-		if (gCoreinitData->__stdio_cleanup)
-			PPCCoreCallback(gCoreinitData->__stdio_cleanup);
-		__PPCExit(status);
-	}
-
 	void miscInit()
 	{
 		s_currentTitleId = CafeSystem::GetForegroundTitleId();
 		s_sdkVersion = CafeSystem::GetForegroundTitleSDKVersion();
-		s_forwardConsoleLogs = LaunchSettings::ForwardConsoleLogging();
 		s_transitionToBackground = false;
 		s_transitionToForeground = false;
 
@@ -912,9 +876,6 @@ namespace coreinit
 
 		cafeExportRegister("coreinit", OSDriver_Register, LogType::Placeholder);
 		cafeExportRegister("coreinit", OSDriver_Deregister, LogType::Placeholder);
-
-		cafeExportRegisterFunc(coreinit_exit, "coreinit", "exit", LogType::CoreinitThread);
-		cafeExportRegister("coreinit", __PPCExit, LogType::CoreinitThread);
 	}
 
 };

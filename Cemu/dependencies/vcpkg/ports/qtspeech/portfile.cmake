@@ -1,9 +1,7 @@
 set(SCRIPT_PATH "${CURRENT_INSTALLED_DIR}/share/qtbase")
 include("${SCRIPT_PATH}/qt_install_submodule.cmake")
 
-set(${PORT}_PATCHES
-    silence-qtspeech-coroutine-warnings.diff
-)
+set(${PORT}_PATCHES)
 set(TOOL_NAMES)
 
 # Note: none of these features are implemented in the manifest yet

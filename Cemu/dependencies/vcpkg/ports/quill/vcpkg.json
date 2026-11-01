@@ -1,9 +1,8 @@
 {
   "name": "quill",
-  "version": "11.1.0",
+  "version": "11.0.1",
   "description": "Asynchronous Low Latency C++ Logging Library",
   "homepage": "https://github.com/odygrd/quill/",
-  "documentation": "https://quillcpp.readthedocs.io/en/latest/",
   "license": "MIT",
   "dependencies": [
     {

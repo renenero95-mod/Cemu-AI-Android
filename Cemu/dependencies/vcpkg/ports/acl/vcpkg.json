@@ -1,17 +1,12 @@
 {
   "name": "acl",
   "version-semver": "2.3.2",
-  "port-version": 1,
   "description": "Commands for Manipulating POSIX Access Control Lists",
   "homepage": "https://savannah.nongnu.org/projects/acl",
   "license": "LGPL-2.1-or-later",
   "supports": "linux",
   "dependencies": [
-    "attr",
-    {
-      "name": "vcpkg-make",
-      "host": true
-    }
+    "attr"
   ],
   "features": {
     "nls": {

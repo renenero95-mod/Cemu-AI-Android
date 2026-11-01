@@ -4,7 +4,8 @@ vcpkg_from_github(
     REF ${VERSION}
     SHA512 379609b5a968b56faf48d2e848b0bb85d95f266a4fea48d457f2242fad580fee88ae5974e1021e31e56ebdb7a49fcddba681eff4d56605c94fbe30032dc5906c
     PATCHES
-        0001-dependencies.patch
+        fix_dependencies.patch
+        find_package_required.patch
 )
 
 file(REMOVE "${SOURCE_PATH}/cmake/FindTBB.cmake")

@@ -40,12 +40,8 @@ vcpkg_check_features(
         secretstore wxUSE_SECRETSTORE
         sound   wxUSE_SOUND
         webview wxUSE_WEBVIEW
+        webview wxUSE_WEBVIEW_EDGE
 )
-
-# Only use wxUSE_WEBVIEW_EDGE on Windows (webview2)
-if(VCPKG_TARGET_IS_WINDOWS AND "webview" IN_LIST FEATURES)
-    list(APPEND FEATURE_OPTIONS "-DwxUSE_WEBVIEW_EDGE=ON")
-endif()
 
 set(OPTIONS_RELEASE "")
 if(NOT "debug-support" IN_LIST FEATURES)
@@ -73,8 +69,8 @@ if(VCPKG_TARGET_IS_WINDOWS)
     endif()
 endif()
 
-if(VCPKG_TARGET_IS_WINDOWS AND "webview" IN_LIST FEATURES AND VCPKG_LIBRARY_LINKAGE STREQUAL "static")
-    list(APPEND OPTIONS -DwxUSE_WEBVIEW_EDGE_STATIC=ON)
+if("webview" IN_LIST FEATURES AND VCPKG_LIBRARY_LINKAGE STREQUAL "static")
+  list(APPEND OPTIONS -DwxUSE_WEBVIEW_EDGE_STATIC=ON)
 endif()
 
 vcpkg_find_acquire_program(PKGCONFIG)

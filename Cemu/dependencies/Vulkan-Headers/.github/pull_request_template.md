@@ -6,9 +6,11 @@ This repository is responsible for the following files
 
 * BUILD.gn
 * BUILD.md
+* cmake/
 * CMakeLists.txt
 * tests/*
 * CODE_OF_CONDUCT.md
+* INTEGRATION.md
 * LICENSE.txt
 * README.md
 * Non-API headers

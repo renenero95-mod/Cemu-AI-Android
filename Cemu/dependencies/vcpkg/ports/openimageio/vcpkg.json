@@ -1,8 +1,9 @@
 {
   "name": "openimageio",
-  "version": "3.1.12.0",
+  "version": "3.0.9.1",
+  "port-version": 2,
   "description": "A library for reading and writing images, and a bunch of related classes, utilities, and application.",
-  "homepage": "https://github.com/AcademySoftwareFoundation/OpenImageIO",
+  "homepage": "https://github.com/OpenImageIO/oiio",
   "license": "BSD-3-Clause",
   "dependencies": [
     "fmt",

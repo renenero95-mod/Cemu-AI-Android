@@ -1,7 +1,6 @@
 {
   "name": "hashids",
   "version": "1.2.2",
-  "port-version": 1,
   "description": "generate short unique ids from integers",
   "homepage": "https://hashids.org/c/",
   "license": "MIT",
@@ -9,10 +8,6 @@
     {
       "name": "getopt",
       "platform": "windows & !mingw"
-    },
-    {
-      "name": "vcpkg-make",
-      "host": true
     }
   ]
 }

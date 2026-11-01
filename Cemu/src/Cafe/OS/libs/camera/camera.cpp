@@ -5,11 +5,9 @@
 #include "Cafe/OS/libs/coreinit/coreinit_Alarm.h"
 #include "Cafe/OS/libs/coreinit/coreinit_Time.h"
 #include "Cafe/HW/Espresso/PPCCallback.h"
-#include "Common/CafeStaticVar.h"
 
 namespace camera
 {
-	constinit COSStaticData s_camStaticData;
 
 	struct CAMInitInfo_t
 	{
@@ -60,8 +58,8 @@ namespace camera
 	std::vector<struct CameraInstance*> g_activeCameraInstances;
 	std::recursive_mutex g_mutex_camera;
 	std::atomic_int g_cameraCounter{ 0 };
-	CafeStaticVar<coreinit::OSAlarm_t, 1> g_alarm_camera{s_camStaticData};
-	CafeStaticVar<CAMCallbackParam, 1> g_cameraHandlerParam{s_camStaticData};
+	SysAllocator<coreinit::OSAlarm_t, 1> g_alarm_camera;
+	SysAllocator<CAMCallbackParam, 1> g_cameraHandlerParam;
 
 	CameraInstance* GetCameraInstanceByHandle(sint32 camHandle)
 	{
@@ -252,15 +250,8 @@ namespace camera
 			return "camera";
 		}
 
-		void RPLUnmapped() override
-		{
-			coreinit::OSCancelAlarm(g_alarm_camera.GetPtr());
-			s_camStaticData.Deallocate();
-		}
-
 		void RPLMapped() override
 		{
-			s_camStaticData.Allocate();
 			cafeExportRegister("camera", CAMGetMemReq, LogType::Placeholder);
 			cafeExportRegister("camera", CAMCheckMemSegmentation, LogType::Placeholder);
 			cafeExportRegister("camera", CAMInit, LogType::Placeholder);

@@ -10,23 +10,22 @@ public:
 
 	void ChangeListFilter(wxString filter);
 
-private:
+  private:
 	struct SymbolItem {
-		SymbolItem() = default;
-		SymbolItem(const wxString& name, const wxString& libName, const wxString& searchName) : name(name), libName(libName), searchName(searchName) {}
+        SymbolItem() = default;
+        SymbolItem(wxString name, wxString libName, wxString searchName, bool visible) : name(name), libName(libName), searchName(searchName), visible(visible) {}
+
 
 		wxString name;
 		wxString libName;
 		wxString searchName;
+		bool visible;
 	};
-	using SymbolMap = std::map<MPTR, SymbolItem>;
 
-	SymbolMap m_data;
+	std::map<MPTR, SymbolItem> m_data;
 	wxString m_list_filter;
-	std::vector<SymbolMap::const_iterator> m_visible_items;
 
-	wxString OnGetItemText(long item, long column) const override;
-	void RebuildVisibleItems();
+	wxString OnGetItemText(long item, long column) const;
 	void OnLeftDClick(wxListEvent& event);
 	void OnRightClick(wxListEvent& event);
 };

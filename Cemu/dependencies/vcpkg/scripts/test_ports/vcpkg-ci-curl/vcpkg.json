@@ -16,15 +16,8 @@
   ],
   "default-features": [
     "compression",
-    {
-      "name": "http3",
-      "platform": "arm & linux"
-    },
     "misc",
-    {
-      "name": "security",
-      "platform": "!(arm & linux)"
-    }
+    "security"
   ],
   "features": {
     "compression": {
@@ -48,18 +41,6 @@
         }
       ]
     },
-    "http3": {
-      "description": "HTTP3 (needs single-backend security)",
-      "dependencies": [
-        {
-          "name": "curl",
-          "default-features": false,
-          "features": [
-            "http3"
-          ]
-        }
-      ]
-    },
     "misc": {
       "description": "Misc features",
       "dependencies": [
@@ -71,6 +52,7 @@
             "http2",
             "httpsrr",
             "idn",
+            "rtmp",
             "ssh",
             "ssls-export"
           ]
@@ -90,7 +72,7 @@
             "ldap",
             "tool"
           ],
-          "platform": "!android & !uwp & !arm"
+          "platform": "!android & !uwp"
         }
       ]
     },
@@ -115,7 +97,7 @@
           "features": [
             "gssapi"
           ],
-          "platform": "(linux | osx) & !arm"
+          "platform": "linux | osx"
         },
         {
           "name": "curl",

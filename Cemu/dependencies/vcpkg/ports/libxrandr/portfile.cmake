@@ -4,15 +4,13 @@ if(NOT X_VCPKG_FORCE_VCPKG_X_LIBRARIES AND NOT VCPKG_TARGET_IS_WINDOWS)
 else()
 
 vcpkg_from_gitlab(
-    GITLAB_URL "https://gitlab.freedesktop.org/xorg"
+    GITLAB_URL https://gitlab.freedesktop.org/xorg
     OUT_SOURCE_PATH SOURCE_PATH
-    REPO "lib/libxrandr"
-    REF "libXrandr-${VERSION}"
-    SHA512 32983bbc173923f016bed8b6920319a6df6583d1a1cb37013e54413244b46501828c9b3136dd37bf46fd95d889045c1e68868f6a9e692356f54bc5db221005f3
+    REPO lib/libxrandr
+    REF 55dcda4518eda8ae03ef25ea29d3c994ad71eb0a # 1.5.2
+    SHA512  63a3a7c5db8d41c73ef2f55e86a47bdae0112ac39802efa5da4fa26a8794066d6906d4a5e4e9af5abb5838a061f2583dc2b8865e38754ee3f2a8e3918de87168
     HEAD_REF master
-    PATCHES
-        fix-configure.patch
-)
+) 
 
 set(ENV{ACLOCAL} "aclocal -I \"${CURRENT_INSTALLED_DIR}/share/xorg/aclocal/\"")
 
@@ -20,18 +18,18 @@ if (VCPKG_CROSSCOMPILING)
     list(APPEND OPTIONS --enable-malloc0returnsnull)
 endif()
 
-vcpkg_make_configure(
+vcpkg_configure_make(
     SOURCE_PATH "${SOURCE_PATH}"
-    AUTORECONF
+    AUTOCONFIG
     OPTIONS ${OPTIONS}
 )
 
-vcpkg_make_install()
+vcpkg_install_make()
 vcpkg_fixup_pkgconfig()
 
 file(REMOVE_RECURSE "${CURRENT_PACKAGES_DIR}/debug/include")
 file(REMOVE_RECURSE "${CURRENT_PACKAGES_DIR}/debug/share")
 
 # Handle copyright
-vcpkg_install_copyright(FILE_LIST "${SOURCE_PATH}/COPYING")
+file(INSTALL "${SOURCE_PATH}/COPYING" DESTINATION "${CURRENT_PACKAGES_DIR}/share/${PORT}" RENAME copyright)
 endif()

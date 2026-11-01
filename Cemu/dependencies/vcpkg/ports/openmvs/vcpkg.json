@@ -1,16 +1,14 @@
 {
   "name": "openmvs",
-  "version": "2.3.0",
-  "port-version": 1,
+  "version": "2.1.0",
+  "port-version": 6,
   "description": "OpenMVS: open Multi-View Stereo reconstruction library",
-  "homepage": "https://cdcseacave.github.io/",
+  "homepage": "https://cdcseacave.github.io/openMVS",
   "license": "AGPL-3.0-only",
   "supports": "!xbox",
   "dependencies": [
-    "boost-assert",
-    "boost-graph",
     "boost-iostreams",
-    "boost-pool",
+    "boost-program-options",
     "boost-serialization",
     "boost-system",
     "boost-throw-exception",
@@ -19,22 +17,21 @@
       "default-features": false
     },
     "eigen3",
-    "libjpeg-turbo",
+    "glew",
+    "glfw3",
     "libpng",
-    "nlohmann-json",
+    "opencv",
     {
-      "name": "opencv",
-      "default-features": false,
+      "name": "openmvg",
       "features": [
-        "highgui"
-      ]
+        "software"
+      ],
+      "platform": "!(windows & static)"
     },
     {
       "name": "tiff",
       "default-features": false
     },
-    "tinygltf",
-    "tinyxml2",
     "vcglib",
     {
       "name": "vcpkg-cmake",
@@ -45,6 +42,9 @@
       "host": true
     },
     "zlib"
+  ],
+  "default-features": [
+    "nonfree"
   ],
   "features": {
     "ceres": {
@@ -59,34 +59,11 @@
         "cuda"
       ]
     },
-    "opengl": {
-      "description": "OpenGL support for openmvs",
-      "dependencies": [
-        "opengl"
-      ]
+    "nonfree": {
+      "description": "nonfree support for openmvs"
     },
     "openmp": {
       "description": "OpenMP support for openmvs"
-    },
-    "tools": {
-      "description": "Install tools",
-      "dependencies": [
-        "boost-program-options"
-      ]
-    },
-    "viewer": {
-      "description": "Install Viewer tool",
-      "dependencies": [
-        "glew",
-        "glfw3",
-        {
-          "name": "openmvs",
-          "features": [
-            "opengl",
-            "tools"
-          ]
-        }
-      ]
     }
   }
 }

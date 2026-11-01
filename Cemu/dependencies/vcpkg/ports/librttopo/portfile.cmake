@@ -62,15 +62,15 @@ if(VCPKG_TARGET_IS_WINDOWS AND NOT VCPKG_TARGET_IS_MINGW)
         vcpkg_replace_string("${outfile}" " -lrttopo -lm" " -llibrttopo")
     endif()
 else()
-    vcpkg_make_configure(
+    vcpkg_configure_make(
         SOURCE_PATH "${SOURCE_PATH}"
-        AUTORECONF
+        AUTOCONFIG
         OPTIONS_DEBUG
             "--with-geosconfig=${CURRENT_INSTALLED_DIR}/tools/geos/debug/bin/geos-config"
         OPTIONS_RELEASE
             "--with-geosconfig=${CURRENT_INSTALLED_DIR}/tools/geos/bin/geos-config"
     )
-    vcpkg_make_install()
+    vcpkg_install_make()
 endif()
 vcpkg_fixup_pkgconfig()
 

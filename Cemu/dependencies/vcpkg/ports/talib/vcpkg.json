@@ -1,10 +1,11 @@
 {
   "name": "talib",
-  "version-semver": "0.6.4",
+  "version-semver": "0.4.0",
+  "port-version": 1,
   "description": "TA-Lib - Technical Analysis Library",
   "homepage": "https://ta-lib.github.io/",
   "license": "BSD-2-Clause",
-  "supports": "osx | (windows & !uwp)",
+  "supports": "windows & !uwp",
   "dependencies": [
     {
       "name": "vcpkg-cmake",

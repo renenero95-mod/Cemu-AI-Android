@@ -7,7 +7,6 @@ vcpkg_from_github(
     PATCHES
         devendor.patch
         remove-manual-font-creation.patch
-        fix-imgui-1.92.5.patch
 )
 file(REMOVE "${SOURCE_PATH}/include/vsgImGui/imgui.h")
 

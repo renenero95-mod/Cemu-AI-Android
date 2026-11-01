@@ -17,6 +17,7 @@
 .idea/
 
 build/
+build_arm
 cmake-build-*/
 out/
 .cache/
@@ -27,7 +28,6 @@ bin/Cemu_*.exe
 bin/otp.bin
 bin/seeprom.bin
 bin/log.txt
-bin/Cemu.pdb
 bin/Cemu_*.pdb
 bin/Cemu_*.ilk
 bin/Cemu.exe.backup

@@ -4,7 +4,6 @@
 namespace coreinit
 {
 	void IPCDriver_NotifyResponses(uint32 ppcCoreIndex, IPCCommandBody** responseArray, uint32 numResponses);
-	void IPCCloseAllHandles();
 
 	IOSDevHandle IOS_Open(const char* devicePath, uint32 flags);
 	IOS_ERROR IOS_Close(IOSDevHandle devHandle);

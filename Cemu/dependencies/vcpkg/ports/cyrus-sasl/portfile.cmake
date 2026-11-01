@@ -85,16 +85,16 @@ else()
     vcpkg_find_acquire_program(PKGCONFIG)
     set(ENV{PKG_CONFIG} "${PKGCONFIG}")
 
-    vcpkg_make_configure(
+    vcpkg_configure_make(
         SOURCE_PATH "${SOURCE_PATH}"
-        AUTORECONF
+        AUTOCONFIG
         OPTIONS
             --enable-sample=no
             --with-dblib=lmdb
             --with-gss_impl=mit
             --disable-macos-framework
     )
-    vcpkg_make_install()
+    vcpkg_install_make()
 endif()
 
 vcpkg_fixup_pkgconfig()

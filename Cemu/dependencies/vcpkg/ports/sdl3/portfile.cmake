@@ -2,7 +2,7 @@ vcpkg_from_github(
     OUT_SOURCE_PATH SOURCE_PATH
     REPO libsdl-org/SDL
     REF "release-${VERSION}"
-    SHA512 10a9c1fa4d6891c7387fa694b786a168f86b6e5447c6c522f85b739e33720e106ee879dfa9e6e537d5521b983cfbd4908927c555c4d3412735129a4231e16fe6
+    SHA512 9e188c992caa7f7ff030789f7926007d2272f51b4c3aa7fc94f58f6823810bde71ce149990c78eee47f26471df2a7b87d4fc25881c339ed2026b1e59052bce39
     HEAD_REF main
     PATCHES
         fix-freebsd.patch
@@ -15,12 +15,10 @@ string(COMPARE EQUAL "${VCPKG_CRT_LINKAGE}" "static" FORCE_STATIC_VCRT)
 vcpkg_check_features(OUT_FEATURE_OPTIONS FEATURE_OPTIONS
     FEATURES
         alsa     SDL_ALSA
-        dbus     SDL_DBUS
         ibus     SDL_IBUS
         vulkan   SDL_VULKAN
         wayland  SDL_WAYLAND
         x11      SDL_X11
-        libusb   SDL_HIDAPI_LIBUSB
 )
 
 if (VCPKG_TARGET_IS_EMSCRIPTEN)
@@ -40,15 +38,6 @@ endif()
 if ("ibus" IN_LIST FEATURES)
     message(WARNING "You will need to install ibus dependencies to use feature ibus:\nsudo apt install libibus-1.0-dev\n")
 endif()
-
-if ("libusb" IN_LIST FEATURES)
-    if(VCPKG_LIBRARY_LINKAGE STREQUAL "dynamic")
-        vcpkg_list(APPEND FEATURE_OPTIONS "-DSDL_HIDAPI_LIBUSB_SHARED=ON")
-    else()
-        vcpkg_list(APPEND FEATURE_OPTIONS "-DSDL_HIDAPI_LIBUSB_SHARED=OFF")
-    endif()
-endif()
-
 # option for not need to show windows
 list(APPEND FEATURE_OPTIONS -DSDL_UNIX_CONSOLE_BUILD=ON)
 if (VCPKG_TARGET_IS_LINUX AND NOT "x11" IN_LIST FEATURES AND NOT "wayland" IN_LIST FEATURES)
@@ -65,10 +54,10 @@ vcpkg_cmake_configure(
         -DSDL_LIBC=ON
         -DSDL_TEST_LIBRARY=OFF
         -DSDL_TESTS=OFF
-        -DSDL_X11_XSCRNSAVER=OFF
         -DSDL_INSTALL_CMAKEDIR_ROOT=share/${PORT}
         # Specifying the revision skips the need to use git to determine a version
         -DSDL_REVISION=vcpkg
+        -DCMAKE_DISABLE_FIND_PACKAGE_LibUSB=1
     MAYBE_UNUSED_VARIABLES
         SDL_FORCE_STATIC_VCRT
 )

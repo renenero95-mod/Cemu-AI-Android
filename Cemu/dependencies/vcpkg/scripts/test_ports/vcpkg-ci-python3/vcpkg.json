@@ -5,15 +5,7 @@
   "homepage": "https://github.com/microsoft/vcpkg",
   "license": "MIT",
   "dependencies": [
-    {
-      "name": "python3",
-      "default-features": false
-    },
-    {
-      "name": "python3",
-      "host": true,
-      "default-features": false
-    },
+    "python3",
     {
       "name": "vcpkg-cmake",
       "host": true

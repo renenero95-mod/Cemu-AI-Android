@@ -1,8 +1,9 @@
 {
   "name": "kf5service",
-  "version": "5.116.0",
+  "version": "5.98.0",
+  "port-version": 1,
   "description": "Plugin framework for desktop services",
-  "homepage": "https://api.kde.org/kservice-index.html",
+  "homepage": "https://api.kde.org/frameworks/kservice/html/index.html",
   "dependencies": [
     "ecm",
     {
@@ -20,10 +21,7 @@
     },
     "kf5i18n",
     "libiconv",
-    {
-      "name": "qt5-base",
-      "default-features": false
-    },
+    "qt5-base",
     "qt5-tools",
     {
       "name": "vcpkg-cmake",

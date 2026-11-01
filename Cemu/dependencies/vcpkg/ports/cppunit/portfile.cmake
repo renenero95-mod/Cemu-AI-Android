@@ -31,9 +31,9 @@ else()
         set(LINKAGE_STATIC yes)
     endif()
 
-    vcpkg_make_configure(
+    vcpkg_configure_make(
         SOURCE_PATH ${SOURCE_PATH}
-        AUTORECONF
+        AUTOCONFIG
         OPTIONS
             "--enable-shared=${LINKAGE_DYNAMIC}"
             "--enable-static=${LINKAGE_STATIC}"
@@ -43,7 +43,7 @@ else()
             "--enable-debug"
     )
 
-    vcpkg_make_install()
+    vcpkg_install_make()
 endif()
 
 vcpkg_copy_pdbs()

@@ -1,7 +1,6 @@
 {
   "name": "orc",
-  "version": "2.2.2",
-  "port-version": 2,
+  "version": "2.1.0",
   "description": "The smallest, fastest columnar storage for Hadoop workloads.",
   "homepage": "https://orc.apache.org/",
   "license": "Apache-2.0",
@@ -24,20 +23,5 @@
     },
     "zlib",
     "zstd"
-  ],
-  "features": {
-    "tools": {
-      "description": "Build tools",
-      "dependencies": [
-        {
-          "name": "getopt-win32",
-          "platform": "windows & !mingw"
-        },
-        {
-          "name": "gettimeofday",
-          "platform": "windows & !mingw"
-        }
-      ]
-    }
-  }
+  ]
 }

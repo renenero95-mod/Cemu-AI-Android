@@ -2,10 +2,10 @@ vcpkg_from_github(
     OUT_SOURCE_PATH SOURCE_PATH
     REPO facebook/openzl
     REF v${VERSION}
-    SHA512 faac20161316b9d0383101c6ddc54a2e42bab75036a3a4ca0a8aa54a0860890723011078532adb199696d532d3b84811912fd6842e8824b716a7d1a4db5aca19
+    SHA512 620ddbef22ba80266ad6f8655982a48d578bb0528bbeddc291e079a42883ec9bdeeb239cf5584eda0de4c7c493ced0a9c300e4cd4cd73f4c4a9449b54b3a477e
     HEAD_REF main
     PATCHES
-        fix-dependencies.patch
+        use-system-zstd.patch
 )
 
 file(REMOVE "${SOURCE_PATH}/src/openzl/shared/xxhash.h")
@@ -28,7 +28,6 @@ vcpkg_cmake_configure(
     OPTIONS
         -DBUILD_SHARED_LIBS=${OPENZL_BUILD_SHARED_LIBS}
         -DOPENZL_BUILD_SHARED_LIBS=${OPENZL_BUILD_SHARED_LIBS}
-        -DOPENZL_INSTALL_CMAKEDIR=share/${PORT}
         -DOPENZL_BUILD_ALL=OFF
         -DOPENZL_BUILD_CPP=ON
         -DOPENZL_BUILD_CUSTOM_PARSERS=OFF
@@ -47,7 +46,7 @@ vcpkg_cmake_configure(
 
 vcpkg_cmake_install()
 vcpkg_copy_pdbs()
-vcpkg_cmake_config_fixup()
+vcpkg_cmake_config_fixup(CONFIG_PATH lib/cmake/openzl)
 
 file(REMOVE_RECURSE "${CURRENT_PACKAGES_DIR}/debug/include" "${CURRENT_PACKAGES_DIR}/debug/share")
 

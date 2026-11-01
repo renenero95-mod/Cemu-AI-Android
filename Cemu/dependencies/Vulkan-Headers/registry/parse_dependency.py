@@ -1,6 +1,6 @@
-#!/usr/bin/env python3
+#!/usr/bin/python3
 
-# Copyright 2022-2026 The Khronos Group Inc.
+# Copyright 2022-2023 The Khronos Group Inc.
 # Copyright 2003-2019 Paul McGuire
 # SPDX-License-Identifier: MIT
 
@@ -31,8 +31,7 @@
 #   - ',' as OR connector
 #   - parenthesization for grouping
 
-# Based on `examples/fourFn.py` from the
-# https://github.com/pyparsing/pyparsing/ repository.
+# Based on https://github.com/pyparsing/pyparsing/blob/master/examples/fourFn.py
 
 from pyparsing import (
     Literal,
@@ -45,73 +44,31 @@ from pyparsing import (
     ParseException,
     CaselessKeyword,
     Suppress,
-    DelimitedList,
-    infix_notation,
-    Combine,
+    delimitedList,
+    infixNotation,
 )
 import math
 import operator
 import pyparsing as pp
 import re
 
-from apiconventions import APIConventions as APIConventions
-conventions = APIConventions()
-
-def markupPassthrough(name):
-    """Pass a name (leaf or operator) through without applying markup"""
-    return name
-
-def leafMarkupAsciidoc(name):
-    """Markup a leaf name as an asciidoc link to an API version or extension
-       anchor.
+def nameMarkup(name):
+    """Returns asciidoc markup to generate a link to an API version or
+       extension anchor.
 
        - name - version or extension name"""
 
-    return conventions.formatVersionOrExtension(name)
-
-def leafMarkupC(name):
-    """Markup a leaf name as a C expression, using conventions of the
-       Vulkan Validation Layers
-
-       - name - version or extension name"""
-
-    (apivariant, major, minor) = apiVersionNameMatch(name)
-
-    if apivariant is not None:
-        return name
+    # Could use ApiConventions.is_api_version_name, but that does not split
+    # out the major/minor version numbers.
+    match = re.search("[A-Z]+_VERSION_([0-9]+)_([0-9]+)", name)
+    if match is not None:
+        major = match.group(1)
+        minor = match.group(2)
+        version = major + '.' + minor
+        return f'<<versions-{major}.{minor}, Version {version}>>'
     else:
-        return f'ext.{name}'
+        return 'apiext:' + name
 
-def leafMarkupCProtect(name):
-    """Markup a leaf name as a C preprocessor defined() expression
-       for use in protect attributes. Supports '!' prefix for negation.
-
-       - name - preprocessor macro name (optionally prefixed with '!' for NOT)"""
-
-    if name.startswith('!'):
-        return f'!defined({name[1:]})'
-    return f'defined({name})'
-
-opMarkupAsciidocMap = { '+' : 'and', ',' : 'or' }
-
-def opMarkupAsciidoc(op):
-    """Markup an operator as an asciidoc spec markup equivalent
-
-       - op - operator ('+' or ',')"""
-
-    return opMarkupAsciidocMap[op]
-
-opMarkupCMap = { '+' : '&&', ',' : '||' }
-
-def opMarkupC(op):
-    """Markup an operator as a C language equivalent
-
-       - op - operator ('+' or ',')"""
-
-    return opMarkupCMap[op]
-
-
-# Unfortunately global to be used in pyparsing
 exprStack = []
 
 def push_first(toks):
@@ -121,12 +78,12 @@ def push_first(toks):
 
     exprStack.append(toks[0])
 
-# An identifier (version, feature boolean, or extension name)
-dependencyIdent = Word(f"{alphanums}_:")
+# An identifier (version or extension name)
+dependencyIdent = Word(alphanums + '_')
 
 # Infix expression for depends expressions
-dependencyExpr = pp.infix_notation(dependencyIdent,
-    [ (pp.one_of(', +'), 2, pp.OpAssoc.LEFT), ])
+dependencyExpr = pp.infixNotation(dependencyIdent,
+    [ (pp.oneOf(', +'), 2, pp.opAssoc.LEFT), ])
 
 # BNF grammar for depends expressions
 _bnf = None
@@ -144,55 +101,30 @@ def dependencyBNF():
         boolop = and_ | or_
 
         expr = Forward()
-        expr_list = DelimitedList(Group(expr))
+        expr_list = delimitedList(Group(expr))
         atom = (
             boolop[...]
             + (
-                (dependencyIdent).set_parse_action(push_first)
+                (dependencyIdent).setParseAction(push_first)
                 | Group(lpar + expr + rpar)
             )
         )
 
-        expr <<= atom + (boolop + atom).set_parse_action(push_first)[...]
+        expr <<= atom + (boolop + atom).setParseAction(push_first)[...]
         _bnf = expr
     return _bnf
-
-
-# Protect identifier: standard identifier optionally prefixed with '!' for negation
-protectIdent = Combine(pp.Optional(Literal('!')) + Word(f"{alphanums}_:"))
-
-_protect_bnf = None
-def protectBNF():
-    """BNF grammar for protect expressions; same as dependencyBNF but supports '!' unary NOT prefix.
-
-    boolop  :: '+' | ','
-    macroname :: '!'? Char(alphanums + '_:')
-    atom    :: macroname | '(' expr ')'
-    expr    :: atom [ boolop atom ]*
-    """
-    global _protect_bnf
-    if _protect_bnf is None:
-        and_, or_ = map(Literal, '+,')
-        lpar, rpar = map(Suppress, '()')
-        boolop = and_ | or_
-
-        expr = Forward()
-        atom = (
-            boolop[...]
-            + (
-                protectIdent.copy().set_parse_action(push_first)
-                | Group(lpar + expr + rpar)
-            )
-        )
-        expr <<= atom + (boolop + atom).set_parse_action(push_first)[...]
-        _protect_bnf = expr
-    return _protect_bnf
 
 
 # map operator symbols to corresponding arithmetic operations
 _opn = {
     '+': operator.and_,
     ',': operator.or_,
+}
+
+# map operator symbols to corresponding words
+_opname = {
+    '+': 'and',
+    ',': 'or',
 }
 
 def evaluateStack(stack, isSupported):
@@ -225,98 +157,46 @@ def evaluateDependency(dependency, isSupported):
 
     global exprStack
     exprStack = []
-    results = dependencyBNF().parse_string(dependency, parse_all=True)
+    results = dependencyBNF().parseString(dependency, parseAll=True)
     val = evaluateStack(exprStack[:], isSupported)
     return val
 
-def evalDependencyLanguage(stack, leafMarkup, opMarkup, parenthesize, root, parent_op = None):
+def evalDependencyLanguage(stack, specmacros):
     """Evaluate an expression stack, returning an English equivalent
 
      - stack - the stack
-     - leafMarkup, opMarkup, parenthesize - same as dependencyLanguage
-     - root - True only if this is the outer (root) expression level
-     - parent_op - the parent operator ('+' or ','), used to avoid unnecessary parentheses"""
+     - specmacros - if True, prepare the language for spec inclusion"""
 
     op, num_args = stack.pop(), 0
     if isinstance(op, tuple):
         op, num_args = op
     if op in '+,':
-        # Recursively evaluate left and right sides, passing current op as parent
-        rhs = evalDependencyLanguage(stack, leafMarkup, opMarkup, parenthesize, root = False, parent_op = op)
-        opname = opMarkup(op)
-        lhs = evalDependencyLanguage(stack, leafMarkup, opMarkup, parenthesize, root = False, parent_op = op)
-        # Only add parentheses if:
-        # 1. parenthesize is True, AND
-        # 2. not at root level, AND
-        # 3. the current operator differs from parent operator (mixed precedence)
-        if parenthesize and not root and parent_op is not None and parent_op != op:
-            return f'({lhs} {opname} {rhs})'
+        # Could parenthesize, not needed yet
+        rhs = evalDependencyLanguage(stack, specmacros)
+        return evalDependencyLanguage(stack, specmacros) + f' {_opname[op]} ' + rhs
+    elif op[0].isalpha():
+        # This is an extension or feature name
+        if specmacros:
+            return nameMarkup(op)
         else:
-            return f'{lhs} {opname} {rhs}'
-    elif op[0].isalpha() or (op.startswith('!') and len(op) > 1 and op[1].isalpha()):
-        # This is an extension or feature name (optionally negated with '!' for protect expressions)
-        return leafMarkup(op)
+            return op
     else:
         raise Exception(f'invalid op: {op}')
 
-def dependencyLanguage(dependency, leafMarkup, opMarkup, parenthesize):
+def dependencyLanguage(dependency, specmacros = False):
     """Return an API dependency expression translated to a form suitable for
        asciidoctor conditionals or header file comments.
 
      - dependency - the expression
-     - leafMarkup - function taking an extension / version name and
-                    returning an equivalent marked up version
-     - opMarkup - function taking an operator ('+' / ',') name name and
-                  returning an equivalent marked up version
-     - parenthesize - True if parentheses should be used in the resulting
-                      expression, False otherwise"""
+     - specmacros - if False, return a string that can be used as an
+       asciidoctor conditional.
+       If True, return a string suitable for spec inclusion with macros and
+       xrefs included."""
 
     global exprStack
     exprStack = []
-    results = dependencyBNF().parse_string(dependency, parse_all=True)
-    return evalDependencyLanguage(exprStack, leafMarkup, opMarkup, parenthesize, root = True, parent_op = None)
-
-# aka specmacros = False
-def dependencyLanguageComment(dependency):
-    """Return dependency expression translated to a form suitable for
-       comments in headers of emitted C code, as used by the
-       docgenerator."""
-    return dependencyLanguage(dependency, leafMarkup = markupPassthrough, opMarkup = opMarkupAsciidoc, parenthesize = True)
-
-# aka specmacros = True
-def dependencyLanguageSpecMacros(dependency):
-    """Return dependency expression translated to a form suitable for
-       comments in headers of emitted C code, as used by the
-       interfacegenerator."""
-    return dependencyLanguage(dependency, leafMarkup = leafMarkupAsciidoc, opMarkup = opMarkupAsciidoc, parenthesize = False)
-
-def dependencyLanguageC(dependency):
-    """Return dependency expression translated to a form suitable for
-       use in C expressions"""
-    return dependencyLanguage(dependency, leafMarkup = leafMarkupC, opMarkup = opMarkupC, parenthesize = True)
-
-def protectLanguageC(protect):
-    """Return protect expression translated to a form suitable for
-       use in C preprocessor conditionals (#if expressions).
-
-       This wraps each identifier in defined() and converts operators:
-       - '+' becomes '&&' (AND)
-       - ',' becomes '||' (OR)
-       Supports '!' prefix on identifiers for NOT:
-       - '!A' becomes '!defined(A)'
-
-       Examples:
-         'VK_A,VK_B' -> 'defined(VK_A) || defined(VK_B)'
-         'VK_A+VK_B' -> 'defined(VK_A) && defined(VK_B)'
-         '(VK_A+VK_B),VK_C' -> '(defined(VK_A) && defined(VK_B)) || defined(VK_C)'
-         'VK_A+!VK_B' -> 'defined(VK_A) && !defined(VK_B)'
-
-       - protect - the protect expression string"""
-    global exprStack
-    exprStack = []
-    protectBNF().parse_string(protect, parse_all=True)
-    return evalDependencyLanguage(exprStack, leafMarkupCProtect, opMarkupC,
-                                  parenthesize=True, root=True, parent_op=None)
+    results = dependencyBNF().parseString(dependency, parseAll=True)
+    return evalDependencyLanguage(exprStack, specmacros)
 
 def evalDependencyNames(stack):
     """Evaluate an expression stack, returning the set of extension and
@@ -344,7 +224,7 @@ def dependencyNames(dependency):
 
     global exprStack
     exprStack = []
-    results = dependencyBNF().parse_string(dependency, parse_all=True)
+    results = dependencyBNF().parseString(dependency, parseAll=True)
     # print(f'names(): stack = {exprStack}')
     return evalDependencyNames(exprStack)
 
@@ -358,7 +238,7 @@ def markupTraverse(expr, level = 0, root = True):
        - root - True only on initial call"""
 
     if level > 0:
-        prefix = f"{'{nbsp}{nbsp}' * level * 2} "
+        prefix = '{nbsp}{nbsp}' * level * 2 + ' '
     else:
         prefix = ''
     str = ''
@@ -373,9 +253,9 @@ def markupTraverse(expr, level = 0, root = True):
 
             str = str + markupTraverse(elem, level = nextlevel, root = False)
         elif elem in ('+', ','):
-            str = f"{str}{prefix}{opMarkupAsciidoc(elem)} +\n"
+            str = str + f'{prefix}{_opname[elem]} +\n'
         else:
-            str = f"{str}{prefix}{leafMarkupAsciidoc(elem)} +\n"
+            str = str + f'{prefix}{nameMarkup(elem)} +\n'
 
     return str
 
@@ -386,14 +266,10 @@ def dependencyMarkup(dependency):
 
      - dependency - the expression"""
 
-    parsed = dependencyExpr.parse_string(dependency)
+    parsed = dependencyExpr.parseString(dependency)
     return markupTraverse(parsed)
 
 if __name__ == "__main__":
-    for str in [ 'VK_VERSION_1_0', 'cl_khr_extension_name', 'XR_VERSION_3_2', 'CL_VERSION_1_0' ]:
-        print(f'{str} -> {conventions.formatVersionOrExtension(str)}')
-    import sys
-    sys.exit(0)
 
     termdict = {
         'VK_VERSION_1_1' : True,
@@ -412,8 +288,7 @@ if __name__ == "__main__":
             print(dependency, f'failed eval: {dependency}')
 
         if val == expected:
-            True
-            # print(f'{dependency} = {val} (as expected)')
+            print(f'{dependency} = {val} (as expected)')
         else:
             print(f'{dependency} ERROR: {val} != {expected}')
 
@@ -456,19 +331,24 @@ if __name__ == "__main__":
     test('true+(true,false)', True)
     test('true+(true,true)', True)
 
+
+    #test('VK_VERSION_1_1+(false,true)', True)
+    #test('true', True)
+    #test('(true)', True)
+    #test('false,false', False)
+    #test('false,true', True)
+    #test('false+true', False)
+    #test('true+true', True)
+
     # Check formatting
     for dependency in [
         #'true',
         #'true+true+false',
-        'true+false',
         'true+(true+false),(false,true)',
-        #'true+((true+false),(false,true))',
-        'VK_VERSION_1_0+VK_KHR_display',
+        'true+((true+false),(false,true))',
         #'VK_VERSION_1_1+(true,false)',
     ]:
         print(f'expr = {dependency}\n{dependencyMarkup(dependency)}')
-        print(f'  spec language = {dependencyLanguageSpecMacros(dependency)}')
-        print(f'  comment language = {dependencyLanguageComment(dependency)}')
-        print(f'  C language = {dependencyLanguageC(dependency)}')
+        print(f'  language = {dependencyLanguage(dependency)}')
         print(f'  names = {dependencyNames(dependency)}')
         print(f'  value = {evaluateDependency(dependency, termSupported)}')

@@ -111,7 +111,7 @@ static const GLenum glAlphaTestFunc[] =
 	GL_ALWAYS
 };
 
-OpenGLRenderer::OpenGLRenderer() : Renderer(RendererAPI::OpenGL)
+OpenGLRenderer::OpenGLRenderer()
 {
 	glRendererState.useTextureUploadBuffer = false;
 	if (glRendererState.useTextureUploadBuffer)
@@ -159,7 +159,7 @@ bool OpenGLRenderer::ImguiBegin(bool mainWindow)
 {
 	if (!mainWindow)
 	{
-		GLCanvas_MakeCurrent(true);
+		m_openGLCallbacks->GLCanvas_MakeCurrent(true);
 		m_isPadViewContext = true;
 	}
 
@@ -186,7 +186,7 @@ void OpenGLRenderer::ImguiEnd()
 
 	if (m_isPadViewContext)
 	{
-		GLCanvas_MakeCurrent(false);
+		m_openGLCallbacks->GLCanvas_MakeCurrent(false);
 		m_isPadViewContext = false;
 	}
 
@@ -242,6 +242,11 @@ void LoadOpenGLImports()
 #define GLFUNC(__type, __name)	__name = (__type)_GetOpenGLFunction(hLib, STRINGIFY(__name));
 #include "Common/GLInclude/glFunctions.h"
 #undef GLFUNC
+}
+#elif BOOST_PLAT_ANDROID
+void LoadOpenGLImports()
+{
+	cemu_assert_unimplemented();
 }
 #elif BOOST_OS_LINUX || BOOST_OS_BSD
 GL_IMPORT _GetOpenGLFunction(void* hLib, PFNGLXGETPROCADDRESSPROC func, const char* name)
@@ -301,27 +306,9 @@ void OpenGLRenderer::Initialize()
 	auto lock = cemuLog_acquire();
 	cemuLog_log(LogType::Force, "------- Init OpenGL graphics backend -------");
 
-	GLCanvas_MakeCurrent(false);
+	m_openGLCallbacks->GLCanvas_MakeCurrent(false);
 	LoadOpenGLImports();
-	GetVendorInformation();
-
-	m_supportsS3TC = false;
-	m_supportsS3TCSRGB = false;
-	bool supportsTextureSRGB = false;
-	sint32 extensionCount = 0;
-	glGetIntegerv(GL_NUM_EXTENSIONS, &extensionCount);
-	for (sint32 i = 0; i < extensionCount; ++i)
-	{
-		const char* extension = reinterpret_cast<const char*>(glGetStringi(GL_EXTENSIONS, i));
-		if (strcmp(extension, "GL_EXT_texture_compression_s3tc") == 0)
-			m_supportsS3TC = true;
-		else if (strcmp(extension, "GL_EXT_texture_sRGB") == 0)
-			supportsTextureSRGB = true;
-		else if (strcmp(extension, "GL_EXT_texture_compression_s3tc_srgb") == 0)
-			m_supportsS3TCSRGB = true;
-	}
-	// sRGB S3TC formats require both extensions
-	m_supportsS3TCSRGB |= m_supportsS3TC && supportsTextureSRGB;
+	GetVendorInformation();	
 
 #if BOOST_OS_WINDOWS
 	if (wglSwapIntervalEXT)
@@ -332,8 +319,6 @@ void OpenGLRenderer::Initialize()
 		glMaxShaderCompilerThreadsARB(0xFFFFFFFF);
 
 	cemuLog_log(LogType::Force, "OpenGL extensions:");
-	cemuLog_log(LogType::Force, "S3TC textures: {}", m_supportsS3TC ? "available" : "software decoding");
-	cemuLog_log(LogType::Force, "S3TC sRGB textures: {}", m_supportsS3TCSRGB ? "available" : "software decoding");
 	cemuLog_log(LogType::Force, "ARB_clip_control: {}", glClipControl ? "available" : "not supported");
 	cemuLog_log(LogType::Force, "ARB_get_program_binary: {}", (glGetProgramBinary != NULL && glProgramBinary != NULL) ? "available" : "not supported");
 	cemuLog_log(LogType::Force, "ARB_clear_texture: {}", (glClearTexImage != NULL) ? "available" : "not supported");
@@ -414,7 +399,7 @@ void OpenGLRenderer::Initialize()
 
 bool OpenGLRenderer::IsPadWindowActive()
 {
-	return GLCanvas_HasPadViewOpen();
+	return m_openGLCallbacks->GLCanvas_HasPadViewOpen();
 }
 
 void OpenGLRenderer::Flush(bool waitIdle)
@@ -429,6 +414,15 @@ void OpenGLRenderer::NotifyLatteCommandProcessorIdle()
 	glFlush();
 }
 
+void OpenGLRenderer::RegisterOpenGLCallbacks(OpenGLCallbacks* openGLCallbacks)
+{
+	m_openGLCallbacks = openGLCallbacks;
+}
+
+void OpenGLRenderer::UnregisterOpenGLCallbacks()
+{
+	m_openGLCallbacks = nullptr;
+}
 void OpenGLRenderer::GetVendorInformation()
 {
 	// example vendor strings:
@@ -502,7 +496,7 @@ void OpenGLRenderer::EnableDebugMode()
 
 void OpenGLRenderer::SwapBuffers(bool swapTV, bool swapDRC)
 {
-	GLCanvas_SwapBuffers(swapTV, swapDRC);
+	m_openGLCallbacks->GLCanvas_SwapBuffers(swapTV, swapDRC);
 
 	if (swapTV)
 		cleanupAfterFrame();
@@ -513,7 +507,7 @@ bool OpenGLRenderer::BeginFrame(bool mainWindow)
 	if (!mainWindow && !IsPadWindowActive())
 		return false;
 
-	GLCanvas_MakeCurrent(!mainWindow);
+	m_openGLCallbacks->GLCanvas_MakeCurrent(!mainWindow);
 
 	ClearColorbuffer(!mainWindow);
 	return true;
@@ -562,13 +556,12 @@ void OpenGLRenderer::HandleScreenshotRequest(LatteTextureView* texView, bool pad
 	texture_bindAndActivate(texView, 0);
 	glGetTexLevelParameteriv(GL_TEXTURE_2D, 0, GL_TEXTURE_WIDTH, &screenshotWidth);
 	glGetTexLevelParameteriv(GL_TEXTURE_2D, 0, GL_TEXTURE_HEIGHT, &screenshotHeight);
+	glPixelStorei(GL_PACK_ALIGNMENT, 1); // set alignment to 1
 
 	const sint32 pixelDataSize = screenshotWidth * screenshotHeight * 3;
 	std::vector<uint8> rgb_data(pixelDataSize);
 
-	glPixelStorei(GL_PACK_ALIGNMENT, 1);
 	glGetTexImage(GL_TEXTURE_2D, 0, GL_RGB, GL_UNSIGNED_BYTE, rgb_data.data());
-	glPixelStorei(GL_PACK_ALIGNMENT, 4);
 	texture_bindAndActivate(nullptr, 0);
 	
 	const bool srcUsesSRGB = HAS_FLAG(texView->format, Latte::E_GX2SURFFMT::FMT_BIT_SRGB);
@@ -607,7 +600,7 @@ void OpenGLRenderer::DrawBackbufferQuad(LatteTextureView* texView, RendererOutpu
 		return;
 
 	catchOpenGLError();
-	GLCanvas_MakeCurrent(padView);
+	m_openGLCallbacks->GLCanvas_MakeCurrent(padView);
 
 	renderstate_resetColorControl();
 	renderstate_resetDepthControl();
@@ -669,7 +662,7 @@ void OpenGLRenderer::DrawBackbufferQuad(LatteTextureView* texView, RendererOutpu
 
 	// switch back to TV context
 	if (padView)
-		GLCanvas_MakeCurrent(false);
+		m_openGLCallbacks->GLCanvas_MakeCurrent(false);
 }
 
 void OpenGLRenderer::renderTarget_setViewport(float x, float y, float width, float height, float nearZ, float farZ, bool halfZ /*= false*/)
@@ -909,26 +902,6 @@ TextureDecoder* OpenGLRenderer::texture_chooseDecodedFormat(Latte::E_GX2SURFFMT 
 		}
 		return nullptr;
 	}
-	if (!SupportsS3TC(HAS_FLAG(format, Latte::E_GX2SURFFMT::FMT_BIT_SRGB)))
-	{
-		switch (format)
-		{
-		case Latte::E_GX2SURFFMT::BC1_UNORM:
-			return TextureDecoder_BC1_UNORM_uncompress::getInstance();
-		case Latte::E_GX2SURFFMT::BC1_SRGB:
-			return TextureDecoder_BC1_SRGB_uncompress::getInstance();
-		case Latte::E_GX2SURFFMT::BC2_UNORM:
-			return TextureDecoder_BC2_UNORM_uncompress::getInstance();
-		case Latte::E_GX2SURFFMT::BC2_SRGB:
-			return TextureDecoder_BC2_SRGB_uncompress::getInstance();
-		case Latte::E_GX2SURFFMT::BC3_UNORM:
-			return TextureDecoder_BC3_UNORM_uncompress::getInstance();
-		case Latte::E_GX2SURFFMT::BC3_SRGB:
-			return TextureDecoder_BC3_SRGB_uncompress::getInstance();
-		default:
-			break;
-		}
-	}
 	if (format == Latte::E_GX2SURFFMT::R4_G4_UNORM)
 		texDecoder = TextureDecoder_R4_G4_UNORM_To_RGBA4::getInstance();
 	else if (format == Latte::E_GX2SURFFMT::R4_G4_B4_A4_UNORM)
@@ -948,9 +921,9 @@ TextureDecoder* OpenGLRenderer::texture_chooseDecodedFormat(Latte::E_GX2SURFFMT 
 	else if (format == Latte::E_GX2SURFFMT::BC1_SRGB)
 		texDecoder = TextureDecoder_BC1::getInstance();
 	else if (format == Latte::E_GX2SURFFMT::BC2_UNORM)
-		texDecoder = TextureDecoder_BC2::getInstance();
+		texDecoder = TextureDecoder_BC2_UNORM_uncompress::getInstance();
 	else if (format == Latte::E_GX2SURFFMT::BC2_SRGB)
-		texDecoder = TextureDecoder_BC2::getInstance();
+		texDecoder = TextureDecoder_BC2_SRGB_uncompress::getInstance();
 	else if (format == Latte::E_GX2SURFFMT::BC3_UNORM)
 		texDecoder = TextureDecoder_BC3::getInstance();
 	else if (format == Latte::E_GX2SURFFMT::BC3_SRGB)
@@ -965,9 +938,9 @@ TextureDecoder* OpenGLRenderer::texture_chooseDecodedFormat(Latte::E_GX2SURFFMT 
 	else if (format == Latte::E_GX2SURFFMT::BC4_SNORM)
 	{
 		if (dim != Latte::E_DIM::DIM_2D && dim != Latte::E_DIM::DIM_2D_ARRAY)
-			texDecoder = TextureDecoder_BC4_UNORM_uncompress::getInstance();
-		else
 			texDecoder = TextureDecoder_BC4::getInstance();
+		else
+			texDecoder = TextureDecoder_BC4_UNORM_uncompress::getInstance();
 	}
 	else if (format == Latte::E_GX2SURFFMT::BC5_UNORM)
 		texDecoder = TextureDecoder_BC5::getInstance();
@@ -1025,8 +998,6 @@ TextureDecoder* OpenGLRenderer::texture_chooseDecodedFormat(Latte::E_GX2SURFFMT 
 		texDecoder = TextureDecoder_R11_G11_B10_FLOAT::getInstance();
 	else if (format == Latte::E_GX2SURFFMT::R32_G32_B32_A32_UINT)
 		texDecoder = TextureDecoder_R32_G32_B32_A32_UINT::getInstance();
-	else if (format == Latte::E_GX2SURFFMT::R32_G32_B32_A32_SINT)
-		texDecoder = TextureDecoder_R32_G32_B32_A32_UINT::getInstance(); // reuse the UINT decoder
 	else if (format == Latte::E_GX2SURFFMT::R16_G16_B16_A16_UINT)
 		texDecoder = TextureDecoder_R16_G16_B16_A16_UINT::getInstance();
 	else if (format == Latte::E_GX2SURFFMT::R8_G8_B8_A8_UINT)
@@ -1787,7 +1758,7 @@ void OpenGLRenderer::renderstate_updateBlendingAndColorControl()
 			//else
 			glPolygonOffset(frontScale, frontOffset);
 
-			prevPolygonFrontOffsetU32 = LatteGPUState.contextNew.PA_SU_POLY_OFFSET_FRONT_OFFSET.getRawValue();
+			prevPolygonFrontOffsetU32 = LatteGPUState.contextNew.PA_SU_POLY_OFFSET_FRONT_SCALE.getRawValue();
 			prevPolygonFrontScaleU32 = LatteGPUState.contextNew.PA_SU_POLY_OFFSET_FRONT_SCALE.getRawValue();
 			prevPolygonClampU32 = LatteGPUState.contextNew.PA_SU_POLY_OFFSET_CLAMP.getRawValue();
 		}

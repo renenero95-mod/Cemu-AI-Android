@@ -1,5 +1,7 @@
-#!/usr/bin/env python3 -i
-# Copyright 2013-2026 The Khronos Group Inc.
+#!/usr/bin/python3 -i
+#
+# Copyright 2013-2023 The Khronos Group Inc.
+#
 # SPDX-License-Identifier: Apache-2.0
 
 # Base class for working-group-specific style conventions,
@@ -30,13 +32,12 @@ TYPES_KNOWN_ALWAYS_VALID = set(('char',
                                 ))
 
 # Split an extension name into vendor ID and name portions
-EXT_NAME_DECOMPOSE_RE = re.compile(r'(?P<prefix>[A-Za-z]+)_(?P<vendor>[A-Za-z]+)_(?P<name>[\w_]+)')
+EXT_NAME_DECOMPOSE_RE = re.compile(r'[A-Z]+_(?P<vendor>[A-Z]+)_(?P<name>[\w_]+)')
 
 # Match an API version name.
-# Match object includes API prefix, major, and minor version numbers.
 # This could be refined further for specific APIs.
-# Handles both simple versions (VK_VERSION_1_0) and component-specific versions (VK_BASE_VERSION_1_0)
-API_VERSION_NAME_RE = re.compile(r'(?P<apivariant>[A-Za-z]+)(?:_(?:BASE|COMPUTE|GRAPHICS))?_VERSION_(?P<major>[0-9]+)_(?P<minor>[0-9]+)')
+API_VERSION_NAME_RE = re.compile(r'[A-Z]+_VERSION_[0-9]')
+
 
 class ProseListFormats(Enum):
     """A connective, possibly with a quantifier."""
@@ -51,7 +52,7 @@ class ProseListFormats(Enum):
             return cls.OR
         if s == 'and':
             return cls.AND
-        raise RuntimeError(f"Unrecognized string connective: {s}")
+        raise RuntimeError("Unrecognized string connective: " + s)
 
     @property
     def connective(self):
@@ -79,38 +80,9 @@ class ConventionsBase(abc.ABC):
         self._command_prefix = None
         self._type_prefix = None
 
-    def formatVersionOrExtension(self, name):
-        """Mark up an API version or extension name as a link in the spec."""
-
-        # Is this a version name?
-        match = API_VERSION_NAME_RE.match(name)
-        if match is not None:
-            return self.formatVersion(name,
-                match.group('apivariant'),
-                match.group('major'),
-                match.group('minor'))
-        else:
-            # If not, assumed to be an extension name. Might be worth checking.
-            return self.formatExtension(name)
-
-    def formatVersion(self, name, apivariant, major, minor):
-        """Mark up an API version name as a link in the spec."""
-        return f'`<<{name}>>`'
-
     def formatExtension(self, name):
-        """Mark up an extension name as a link in the spec."""
-        return f'`<<{name}>>`'
-
-    def formatSPIRVlink(self, name):
-        """Mark up a SPIR-V extension name as an external link in the spec.
-           Since these are external links, the formatting probably will be
-           the same for all APIs creating such links, so long as they use
-           the asciidoctor {spirv} attribute for the base path to the SPIR-V
-           extensions."""
-
-        (vendor, _) = self.extension_name_split(name)
-
-        return f'{{spirv}}/{vendor}/{name}.html[{name}]'
+        """Mark up an extension name as a link the spec."""
+        return '`<<{}>>`'.format(name)
 
     @property
     @abc.abstractmethod
@@ -150,11 +122,6 @@ class ConventionsBase(abc.ABC):
         May override.
         """
         return 'code:'
-
-    @property
-    def allows_x_number_suffix(self):
-        """Whether vendor tags can be suffixed with X and a number to mark experimental extensions."""
-        return False
 
     @property
     @abc.abstractmethod
@@ -217,13 +184,13 @@ class ConventionsBase(abc.ABC):
 
         Do not edit these defaults, override self.makeProseList().
         """
-        assert serial_comma  # did not implement what we did not need
+        assert(serial_comma)  # did not implement what we did not need
         if isinstance(fmt, str):
             fmt = ProseListFormats.from_string(fmt)
 
         my_elts = list(elements)
         if len(my_elts) > 1:
-            my_elts[-1] = f'{fmt.connective} {my_elts[-1]}'
+            my_elts[-1] = '{} {}'.format(fmt.connective, my_elts[-1])
 
         if not comma_for_two_elts and len(my_elts) <= 2:
             prose = ' '.join(my_elts)
@@ -294,63 +261,13 @@ class ConventionsBase(abc.ABC):
         raise NotImplementedError
 
     @property
-    def extension_name_prefix(self):
-        """Return extension name prefix.
-
-        Typically two uppercase letters followed by an underscore.
-
-        Assumed to be the same as api_prefix, but some APIs use different
-        case conventions."""
-
-        return self.api_prefix
-
-    def extension_short_description(self, elem):
-        """Return a short description of an extension for use in refpages.
-
-        elem is an ElementTree for the <extension> tag in the XML.
-        The default behavior is to use the 'type' field of this tag, but not
-        all APIs support this field."""
-
-        ext_type = elem.get('type')
-
-        if ext_type is not None:
-            return f'{ext_type} extension'
-        else:
-            return ''
-
-    @property
-    def write_contacts(self):
-        """Return whether contact list should be written to extension appendices"""
-        return False
-
-    @property
-    def write_extension_type(self):
-        """Return whether extension type should be written to extension appendices"""
-        return True
-
-    @property
-    def write_extension_number(self):
-        """Return whether extension number should be written to extension appendices"""
-        return True
-
-    @property
-    def write_extension_revision(self):
-        """Return whether extension revision number should be written to extension appendices"""
-        return True
-
-    @property
-    def write_refpage_include(self):
-        """Return whether refpage include should be written to extension appendices"""
-        return True
-
-    @property
     def api_version_prefix(self):
         """Return API core version token prefix.
 
         Implemented in terms of api_prefix.
 
         May override."""
-        return f"{self.api_prefix}VERSION_"
+        return self.api_prefix + 'VERSION_'
 
     @property
     def KHR_prefix(self):
@@ -359,7 +276,7 @@ class ConventionsBase(abc.ABC):
         Implemented in terms of api_prefix.
 
         May override."""
-        return f"{self.api_prefix}KHR_"
+        return self.api_prefix + 'KHR_'
 
     @property
     def EXT_prefix(self):
@@ -368,9 +285,9 @@ class ConventionsBase(abc.ABC):
         Implemented in terms of api_prefix.
 
         May override."""
-        return f"{self.api_prefix}EXT_"
+        return self.api_prefix + 'EXT_'
 
-    def writeFeature(self, featureName, featureExtraProtect, filename):
+    def writeFeature(self, featureExtraProtect, filename):
         """Return True if OutputGenerator.endFeature should write this feature.
 
         Defaults to always True.
@@ -458,16 +375,6 @@ class ConventionsBase(abc.ABC):
            documentation includes."""
         return False
 
-    def extension_name_split(self, name):
-        """Split an extension name, returning (vendor, rest of name).
-           The API prefix of the name is ignored."""
-
-        match = EXT_NAME_DECOMPOSE_RE.match(name)
-        vendor = match.group('vendor')
-        bare_name = match.group('name')
-
-        return (vendor, bare_name)
-
     @abc.abstractmethod
     def extension_file_path(self, name):
         """Return file path to an extension appendix relative to a directory
@@ -482,7 +389,8 @@ class ConventionsBase(abc.ABC):
            file.
             - name - extension name"""
 
-        return f'include::{{appendices}}/{self.extension_file_path(name)}[]'
+        return 'include::{{appendices}}/{}[]'.format(
+                self.extension_file_path(name))
 
     @property
     def provisional_extension_warning(self):
@@ -544,18 +452,3 @@ class ConventionsBase(abc.ABC):
         """Return True if name is an API version name."""
 
         return API_VERSION_NAME_RE.match(name) is not None
-
-    @property
-    def docgen_language(self):
-        """Return the language to be used in docgenerator [source]
-           blocks."""
-
-        return 'c'
-
-    @property
-    def docgen_source_options(self):
-        """Return block options to be used in docgenerator [source] blocks,
-           which are appended to the 'source' block type.
-           Can be empty."""
-
-        return '%unbreakable'

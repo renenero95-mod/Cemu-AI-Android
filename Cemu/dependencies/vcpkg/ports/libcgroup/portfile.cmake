@@ -13,9 +13,9 @@ message(STATUS "${PORT} currently requires the following libraries from the syst
     "It can be installed with your package manager"
 )
 
-vcpkg_make_configure(
+vcpkg_configure_make(
     SOURCE_PATH "${SOURCE_PATH}"
-    AUTORECONF
+    AUTOCONFIG
     OPTIONS
         --enable-tools=no
         --enable-python=no
@@ -25,7 +25,7 @@ vcpkg_make_configure(
         --enable-pam=no
 )
 
-vcpkg_make_install()
+vcpkg_install_make()
 vcpkg_fixup_pkgconfig()
 
 file(REMOVE_RECURSE "${CURRENT_PACKAGES_DIR}/debug/include")

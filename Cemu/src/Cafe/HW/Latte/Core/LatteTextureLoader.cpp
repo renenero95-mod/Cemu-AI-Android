@@ -695,13 +695,16 @@ void LatteTextureLoader_UpdateTextureSliceData(LatteTexture* tex, uint32 sliceIn
 }
 
 template<typename copyType>
-void optimizedLinearReadbackWriteLoop(LatteTextureLoaderCtx* textureLoader, uint8* linearPixelData, uint32 sourcePitch)
+void optimizedLinearReadbackWriteLoop(LatteTextureLoaderCtx* textureLoader, uint8* linearPixelData)
 {
+	uint32 pitch = textureLoader->width;
 	// optimized for linear
 	for (sint32 y = 0; y < textureLoader->height; y++)
 	{
-		copyType* rowPixelData = (copyType*)(linearPixelData + y * sourcePitch);
-		copyType* blockData = (copyType*)LatteTextureLoader_getInputLinearOptimized_(textureLoader, 0, y, 1, 1, sizeof(copyType) * 8, textureLoader->sliceIndex, 1, 0, textureLoader->pitch, textureLoader->surfaceInfoHeight);
+		sint32 yc = y;
+		sint32 pixelOffset = yc * pitch;
+		copyType* rowPixelData = (copyType*)(linearPixelData + pixelOffset * sizeof(copyType));
+		copyType* blockData = (copyType*)LatteTextureLoader_getInputLinearOptimized_(textureLoader, 0, y, 1, 1, sizeof(copyType) * 8, 0, 1, 0, textureLoader->pitch, textureLoader->height);
 		if constexpr (sizeof(copyType) == 4)
 		{
 			memcpy_dwords(blockData, rowPixelData, textureLoader->width);
@@ -718,11 +721,15 @@ void optimizedLinearReadbackWriteLoop(LatteTextureLoaderCtx* textureLoader, uint
 	}
 }
 
-void LatteTextureLoader_writeReadbackTextureToMemory(LatteTextureDefinition* textureData, uint32 sliceIndex, uint32 mipIndex, uint8* linearPixelData, uint32 sourceRowPitch)
+void LatteTextureLoader_writeReadbackTextureToMemory(LatteTextureDefinition* textureData, uint32 sliceIndex, uint32 mipIndex, uint8* linearPixelData)
 {
 	LatteTextureLoaderCtx textureLoader = { 0 };
 	LatteTextureLoader_begin(&textureLoader, sliceIndex, mipIndex, textureData->physAddress, textureData->physMipAddress, textureData->format, textureData->dim, textureData->width, textureData->height, textureData->depth, textureData->mipLevels, textureData->pitch, textureData->tileMode, textureData->swizzle);
 
+#ifdef CEMU_DEBUG_ASSERT
+	if (textureData->depth != 1)
+		cemuLog_log(LogType::Force, "_writeReadbackTextureToMemory(): Texture has multiple slices (not supported)");
+#endif
 	if (textureLoader.physAddress == MPTR_NULL)
 	{
 		cemuLog_log(LogType::Force, "_writeReadbackTextureToMemory(): Texture has invalid address");
@@ -731,27 +738,24 @@ void LatteTextureLoader_writeReadbackTextureToMemory(LatteTextureDefinition* tex
 
 	cemuLog_log(LogType::TextureReadback, "[TextureReadback-Write] PhysAddr {:08x} Res {}x{} Fmt {} Slice {} Mip {}", textureData->physAddress, textureData->width, textureData->height, textureData->format, sliceIndex, mipIndex);
 
-	Latte::E_HWFMT hwFormat = Latte::GetHWFormat(textureData->format);
 	if (textureData->tileMode == Latte::E_HWTILEMODE::TM_LINEAR_ALIGNED)
 	{
+		uint32 pitch = textureLoader.width;
 		if (textureData->format == Latte::E_GX2SURFFMT::R8_G8_B8_A8_UNORM ||
-			textureData->format == Latte::E_GX2SURFFMT::R8_G8_B8_A8_SRGB ||
-			hwFormat == Latte::E_HWFMT::HWFMT_2_10_10_10)
+			textureData->format == Latte::E_GX2SURFFMT::R8_G8_B8_A8_SRGB)
 		{
-			optimizedLinearReadbackWriteLoop<uint32>(&textureLoader, linearPixelData, sourceRowPitch);
+			optimizedLinearReadbackWriteLoop<uint32>(&textureLoader, linearPixelData);
 		}
 		else if (textureData->format == Latte::E_GX2SURFFMT::R16_G16_B16_A16_UNORM)
 		{
-			optimizedLinearReadbackWriteLoop<uint64>(&textureLoader, linearPixelData, sourceRowPitch);
+			optimizedLinearReadbackWriteLoop<uint64>(&textureLoader, linearPixelData);
 		}
-		else if (textureData->format == Latte::E_GX2SURFFMT::R32_G32_B32_A32_FLOAT ||
-			textureData->format == Latte::E_GX2SURFFMT::R32_G32_B32_A32_SINT ||
-			textureData->format == Latte::E_GX2SURFFMT::R32_G32_B32_A32_UINT)
+		else if (textureData->format == Latte::E_GX2SURFFMT::R32_G32_B32_A32_FLOAT)
 		{
 			for (sint32 y = 0; y < textureLoader.height; y += textureLoader.stepY)
 			{
 				sint32 yc = y;
-				sint32 pixelOffset = yc * sourceRowPitch;
+				sint32 pixelOffset = (0 + yc * pitch) * 16;
 				for (sint32 x = 0; x < textureLoader.width; x += textureLoader.stepX)
 				{
 					uint8* blockData = LatteTextureLoader_getInputLinearOptimized(&textureLoader, x, y);
@@ -771,7 +775,7 @@ void LatteTextureLoader_writeReadbackTextureToMemory(LatteTextureDefinition* tex
 				for (sint32 x = 0; x < textureLoader.width; x += textureLoader.stepX)
 				{
 					uint8* blockData = LatteTextureLoader_getInputLinearOptimized(&textureLoader, x, y);
-					sint32 pixelOffset = yc * sourceRowPitch + x * 4;
+					sint32 pixelOffset = (x + yc * pitch) * 4;
 					(*(uint32*)(blockData + 0)) = *(uint32*)(linearPixelData + pixelOffset + 0);
 				}
 			}
@@ -784,7 +788,7 @@ void LatteTextureLoader_writeReadbackTextureToMemory(LatteTextureDefinition* tex
 				for (sint32 x = 0; x < textureLoader.width; x += textureLoader.stepX)
 				{
 					uint8* blockData = LatteTextureLoader_getInputLinearOptimized(&textureLoader, x, y);
-					sint32 pixelOffset = yc * sourceRowPitch + x * 8;
+					sint32 pixelOffset = (x + yc * pitch) * 8;
 					(*(uint32*)(blockData + 0)) = *(uint32*)(linearPixelData + pixelOffset + 0);
 					(*(uint32*)(blockData + 4)) = *(uint32*)(linearPixelData + pixelOffset + 4);
 				}
@@ -792,15 +796,15 @@ void LatteTextureLoader_writeReadbackTextureToMemory(LatteTextureDefinition* tex
 		}
 		else if (textureData->format == Latte::E_GX2SURFFMT::R8_G8_UNORM)
 		{
-			optimizedLinearReadbackWriteLoop<uint16>(&textureLoader, linearPixelData, sourceRowPitch);
+			optimizedLinearReadbackWriteLoop<uint16>(&textureLoader, linearPixelData);
 		}
 		else if (textureData->format == Latte::E_GX2SURFFMT::R16_G16_B16_A16_UNORM)
 		{
 			cemu_assert_unimplemented();
 		}
-		else if (textureData->format == Latte::E_GX2SURFFMT::R16_UNORM || textureData->format == Latte::E_GX2SURFFMT::R16_FLOAT)
+		else if (textureData->format == Latte::E_GX2SURFFMT::R16_UNORM)
 		{
-			optimizedLinearReadbackWriteLoop<uint16>(&textureLoader, linearPixelData, sourceRowPitch);
+			optimizedLinearReadbackWriteLoop<uint16>(&textureLoader, linearPixelData);
 		}
 		else
 		{
@@ -810,12 +814,13 @@ void LatteTextureLoader_writeReadbackTextureToMemory(LatteTextureDefinition* tex
 		return;
 	}
 	// generic and slow decode loops
-	if (hwFormat == Latte::E_HWFMT::HWFMT_8_8_8_8 || hwFormat == Latte::E_HWFMT::HWFMT_2_10_10_10)
+	Latte::E_HWSURFFMT hwFormat = Latte::GetHWFormat(textureData->format);
+	if (hwFormat == Latte::E_HWSURFFMT::HWFMT_8_8_8_8)
 	{
-		// used in Bayonetta 2 and Color Splash
+		// used in Bayonetta 2
 		for (sint32 y = 0; y < textureLoader.height; y++)
 		{
-			uint8* pixelInput = linearPixelData + y * sourceRowPitch;
+			uint8* pixelInput = linearPixelData + (y * textureLoader.width) * 4;
 			for (sint32 x = 0; x < textureLoader.width; x++)
 			{
 				uint8* outputData = LatteTextureLoader_GetInput(&textureLoader, x, y);
@@ -824,27 +829,13 @@ void LatteTextureLoader_writeReadbackTextureToMemory(LatteTextureDefinition* tex
 			}
 		}
 	}
-	else if (textureData->format == Latte::E_GX2SURFFMT::R16_FLOAT)
-	{
-		// used in Xenoblade Chronicles X
-		for (sint32 y = 0; y < textureLoader.height; y++)
-		{
-			uint8* pixelInput = linearPixelData + y * sourceRowPitch;
-			for (sint32 x = 0; x < textureLoader.width; x++)
-			{
-				uint8* outputData = LatteTextureLoader_GetInput(&textureLoader, x, y);
-				*(uint16*)(outputData + 0) = *(uint16*)pixelInput;
-				pixelInput += 2;
-			}
-		}
-	}
-	else if (hwFormat == Latte::E_HWFMT::HWFMT_32_FLOAT)
+	else if (hwFormat == Latte::E_HWSURFFMT::HWFMT_32_FLOAT)
 	{
 		// required by Wind Waker for direct access to depth buffer
 		// Bayonetta 2 also uses this but it converts the depth buffer to a color texture first
 		for (sint32 y = 0; y < textureLoader.height; y++)
 		{
-			uint8* pixelInput = linearPixelData + y * sourceRowPitch;
+			uint8* pixelInput = linearPixelData + (y * textureLoader.width) * 4;
 			for (sint32 x = 0; x < textureLoader.width; x++)
 			{
 				uint8* outputData = LatteTextureLoader_GetInput(&textureLoader, x, y);

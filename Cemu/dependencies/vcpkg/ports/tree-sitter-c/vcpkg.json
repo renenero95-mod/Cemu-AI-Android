@@ -1,6 +1,6 @@
 {
   "name": "tree-sitter-c",
-  "version": "0.24.2",
+  "version": "0.24.1",
   "description": "C grammar for tree-sitter",
   "homepage": "https://github.com/tree-sitter/tree-sitter-c",
   "license": "MIT",
@@ -12,10 +12,6 @@
     },
     {
       "name": "vcpkg-cmake",
-      "host": true
-    },
-    {
-      "name": "vcpkg-tool-nodejs",
       "host": true
     }
   ]

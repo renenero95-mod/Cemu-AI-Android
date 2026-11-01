@@ -4,12 +4,13 @@
 #include "input/api/DSU/DSUMessages.h"
 
 #include "input/api/ControllerProvider.h"
-#include "util/helpers/ConcurrentQueue.h"
 
 #include <boost/asio.hpp>
 
+#if !BOOST_PLAT_ANDROID
 #ifndef HAS_DSU
 #define HAS_DSU 1
+#endif
 #endif
 
 // #define DEBUG_DSU_CLIENT
@@ -88,6 +89,7 @@ public:
 	void request_pad_data();
 	void request_pad_data(uint8_t index);
 
+
 private:
 	uint16 m_server_version = 0;
 
@@ -98,18 +100,20 @@ private:
 	void writer_thread();
 	void integrate_motion(uint8_t index, const DataResponse& data_response);
 
+	std::mutex m_writer_mutex;
+	std::condition_variable m_writer_cond;
+
 	uint32 m_uid;
 	boost::asio::io_context m_io_service;
 	boost::asio::ip::udp::endpoint m_receiver_endpoint;
 	boost::asio::ip::udp::socket m_socket;
-	boost::asio::ip::udp::endpoint m_socketWakeupEndpoint;
 
 	std::array<ControllerState, kMaxClients> m_state{};
 	std::array<ControllerState, kMaxClients> m_prev_state{};
 	mutable std::array<std::mutex, kMaxClients> m_mutex;
 	mutable std::array<std::condition_variable, kMaxClients> m_wait_cond;
 
-	ConcurrentQueue<std::unique_ptr<ClientMessage>> m_writerJobs;
+	std::queue<std::unique_ptr<ClientMessage>> m_writer_jobs;
 
 	std::array<WiiUMotionHandler, kMaxClients> m_motion_handler;
 	std::array<uint64, kMaxClients> m_last_motion_timestamp{};

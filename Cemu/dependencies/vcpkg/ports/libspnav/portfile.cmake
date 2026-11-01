@@ -6,13 +6,13 @@ vcpkg_from_github(
     HEAD_REF master
 )
 
-vcpkg_make_configure(
+vcpkg_configure_make(
     SOURCE_PATH ${SOURCE_PATH}
     OPTIONS_DEBUG "--enable-debug"
     OPTIONS_RELEASE "--disable-debug"
 )
 
-vcpkg_make_install()
+vcpkg_install_make()
 
 macro(CLEANUP WHERE)
     set(WORKDIR ${CURRENT_PACKAGES_DIR}/${WHERE})

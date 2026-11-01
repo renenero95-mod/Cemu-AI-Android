@@ -1,6 +1,6 @@
 {
   "name": "rocksdb",
-  "version": "11.0.4",
+  "version": "10.4.2",
   "description": "A library that provides an embeddable, persistent key-value store for fast storage",
   "homepage": "https://github.com/facebook/rocksdb",
   "license": "GPL-2.0-only OR Apache-2.0",
@@ -54,12 +54,7 @@
     "snappy": {
       "description": "build with SNAPPY",
       "dependencies": [
-        {
-          "name": "snappy",
-          "features": [
-            "rtti"
-          ]
-        }
+        "snappy"
       ]
     },
     "tbb": {

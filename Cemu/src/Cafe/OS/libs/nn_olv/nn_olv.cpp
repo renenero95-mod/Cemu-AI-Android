@@ -11,16 +11,13 @@
 #include "Cafe/OS/libs/coreinit/coreinit_Time.h"
 #include "Cafe/OS/libs/coreinit/coreinit_Misc.h"
 
-
 namespace nn
 {
 	namespace olv
 	{
-		constinit COSStaticData s_nnolvStaticData;
-
-		CafeStaticVar<OSThread_t> s_OlvReleaseBgThread{s_nnolvStaticData};
-		CafeStaticVar<uint8, 1024> s_OlvReleaseBgThreadStack{s_nnolvStaticData};
-		CafeStaticVar<char, 32> s_OlvReleaseBgThreadName{s_nnolvStaticData};
+		static SysAllocator<OSThread_t> s_OlvReleaseBgThread;
+		SysAllocator<uint8, 1024> s_OlvReleaseBgThreadStack;
+		SysAllocator<char, 32> s_OlvReleaseBgThreadName;
 
 		void StubPostAppReleaseBackground(PPCInterpreter_t* hCPU)
 		{
@@ -106,17 +103,8 @@ namespace nn
 				return "nn_olv";
 			}
 
-			void RPLUnmapped() override
-			{
-				OfflineDB_Shutdown();
-				s_nnolvStaticData.Deallocate();
-			}
-
 			void RPLMapped() override
 			{
-				g_ParamPack = {};
-				g_DiscoveryResults = {};
-				s_nnolvStaticData.Allocate();
 				loadOliveInitializeTypes();
 				loadOliveUploadCommunityTypes();
 				loadOliveDownloadCommunityTypes();
@@ -145,6 +133,10 @@ namespace nn
 					g_IsOnlineMode = false;
 					g_IsInitialized = false;
 					g_IsOfflineDBMode = false;
+				}
+				else if (reason == coreinit::RplEntryReason::Unloaded)
+				{
+					OfflineDB_Shutdown();
 				}
 			}
 		}s_COSnnOlvModule;

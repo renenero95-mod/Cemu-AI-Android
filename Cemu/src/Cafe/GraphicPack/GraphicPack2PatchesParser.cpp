@@ -56,9 +56,9 @@ void GraphicPack2::AddPatchGroup(PatchGroup* group)
 		if (patchData)
 		{
 			uint32 patchAddr = patchData->getAddr();
-			if (patchAddr < PatchGroup::CODECAVE_MAX_OFFSET)
+			if (patchAddr < 0x00100000)
 			{
-				// everything that gets relocated relative to the code cave needs to be part of it
+				// everything in low 1MB of memory we consider part of the code cave
 				codeCaveMaxAddr = std::max(codeCaveMaxAddr, patchAddr + patchData->getSize());
 			}
 		}

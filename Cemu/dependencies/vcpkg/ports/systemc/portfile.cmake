@@ -8,7 +8,6 @@ vcpkg_from_github(
     HEAD_REF main
     PATCHES
         install.patch
-        msvc-opfx-removal.diff # https://github.com/accellera-official/systemc/pull/159
 )
 
 vcpkg_cmake_configure(

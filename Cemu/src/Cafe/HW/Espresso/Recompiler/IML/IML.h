@@ -9,7 +9,6 @@ void IMLOptimizer_OptimizeDirectIntegerCopies(struct ppcImlGenContext_t* ppcImlG
 void PPCRecompiler_optimizePSQLoadAndStore(struct ppcImlGenContext_t* ppcImlGenContext);
 
 void IMLOptimizer_StandardOptimizationPass(ppcImlGenContext_t& ppcImlGenContext);
-void IMLOptimizer_OptimizeSinglePrecisionStores(ppcImlGenContext_t& ppcImlGenContext);
 
 // debug
 void IMLDebug_DisassembleInstruction(const IMLInstruction& inst, std::string& disassemblyLineOut);

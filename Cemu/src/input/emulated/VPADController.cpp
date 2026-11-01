@@ -1,8 +1,9 @@
 #include "input/emulated/VPADController.h"
 #include "input/api/Controller.h"
-#ifdef HAS_SDL
+#include <mutex>
+#if HAS_SDL
 #include "input/api/SDL/SDLController.h"
-#endif
+#endif // HAS_SDL
 #include "WindowSystem.h"
 #include "input/InputManager.h"
 #include "Cafe/HW/Latte/Core/Latte.h"
@@ -112,15 +113,14 @@ void VPADController::VPADRead(VPADStatus_t& status, const BtnRepeat& repeat)
 
 	// button repeat
 	const auto now = std::chrono::high_resolution_clock::now();
-	uint32 currentHold = status.hold;
-	if (currentHold != m_last_holdvalue)
+	if (status.hold != m_last_holdvalue)
 	{
 		m_last_hold_change = m_last_pulse = now;
 	}
 
 	if (repeat.pulse > 0)
 	{
-		if (currentHold != 0 && m_last_hold_change + std::chrono::milliseconds(repeat.delay) <= now)
+		if (m_last_hold_change + std::chrono::milliseconds(repeat.delay) >= now)
 		{
 			if ((m_last_pulse + std::chrono::milliseconds(repeat.pulse)) < now)
 			{
@@ -131,9 +131,9 @@ void VPADController::VPADRead(VPADStatus_t& status, const BtnRepeat& repeat)
 	}
 
 	// general
-	status.release = m_last_holdvalue & ~currentHold;
-	status.trig = ~m_last_holdvalue & currentHold;
-	m_last_holdvalue = currentHold;
+	status.release = m_last_holdvalue & ~status.hold;
+	status.trig = ~m_last_holdvalue & status.hold;
+	m_last_holdvalue = status.hold;
 
 	// touch
 	update_touch(status);
@@ -238,10 +238,10 @@ void VPADController::update_touch(VPADStatus_t& status)
 
 void VPADController::update_motion(VPADStatus_t& status)
 {
+	auto& input_manager = InputManager::instance();
 	if (has_motion())
 	{
-		auto motionSample = get_motion_data();
-
+		MotionSample motionSample = get_motion_data();
 		glm::vec3 acc;
 		motionSample.getVPADAccelerometer(&acc[0]);
 		//const auto& acc = motionSample.getVPADAccelerometer();
@@ -282,7 +282,6 @@ void VPADController::update_motion(VPADStatus_t& status)
 	}
 
 	bool pad_view;
-	auto& input_manager = InputManager::instance();
 	if (const auto right_mouse = input_manager.get_right_down_mouse_info(&pad_view))
 	{
 		const Vector2<float> mousePos(right_mouse->x, right_mouse->y);
@@ -513,7 +512,7 @@ bool VPADController::set_default_mapping(const std::shared_ptr<ControllerBase>& 
 	std::vector<std::pair<uint64, uint64>> mapping;
 	switch (controller->api())
 	{
-#ifdef HAS_SDL
+#if HAS_SDL
 	case InputAPI::SDLController: {
 		const auto sdl_controller = std::static_pointer_cast<SDLController>(controller);
 		if (sdl_controller->get_guid() == SDLController::kLeftJoyCon)
@@ -637,7 +636,7 @@ bool VPADController::set_default_mapping(const std::shared_ptr<ControllerBase>& 
 		}
 		break;
 	}
-#endif
+#endif // HAS_SDL
 	case InputAPI::XInput:
 	{
 		mapping =

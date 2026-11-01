@@ -6,7 +6,6 @@ vcpkg_from_github(
     HEAD_REF master
     PATCHES
         config-debug.diff
-        backport-0f5ebe9f.diff # Fix deprecated literal operator syntax
 )
 
 vcpkg_check_features(OUT_FEATURE_OPTIONS FEATURE_OPTIONS FEATURES

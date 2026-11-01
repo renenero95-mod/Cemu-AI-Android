@@ -7,8 +7,6 @@
 #include "WindowSystem.h"
 #include "input/InputManager.h"
 
-constinit COSStaticData s_padscoreStaticData;
-
 // KPAD
 
 enum class KPAD_ERROR : sint32
@@ -57,7 +55,7 @@ namespace padscore
 	WPADState_t g_wpad_state = kWPADStateMaster;
 
 	struct {
-		CafeStaticVar<coreinit::OSAlarm_t> alarm{s_padscoreStaticData};
+		SysAllocator<coreinit::OSAlarm_t> alarm;
 		bool kpad_initialized = false;
 
 		struct WPADData
@@ -172,7 +170,7 @@ void padscoreExport_WPADRead(PPCInterpreter_t* hCPU)
 {
 	ppcDefineParamU32(channel, 0);
 	ppcDefineParamPtr(wpadStatus, WPADStatus_t, 1);
-	cemuLog_log(LogType::InputAPI, "WPADRead({}, {:x})", channel, memory_getVirtualOffsetFromPointer(wpadStatus));
+	cemuLog_log(LogType::InputAPI, "WPADRead({}, {})", channel, fmt::ptr(wpadStatus));
 
 	if (channel < InputManager::kMaxWPADControllers)
 	{
@@ -226,7 +224,7 @@ void padscoreExport_WPADGetInfo(PPCInterpreter_t* hCPU)
 {
 	ppcDefineParamU32(channel, 0);
 	ppcDefineParamStructPtr(wpadInfo, WPADInfo_t, 1);
-	cemuLog_log(LogType::InputAPI, "WPADGetInfo({}, 0x{:08x})", channel, memory_getVirtualOffsetFromPointer(wpadInfo));
+	cemuLog_log(LogType::InputAPI, "WPADGetInfo({}, {})", channel, fmt::ptr(wpadInfo));
 
 	if (channel < InputManager::kMaxWPADControllers)
 	{
@@ -776,21 +774,8 @@ namespace padscore
 			return "padscore";
 		}
 
-		void RPLUnmapped() override
-		{
-			coreinit::OSCancelAlarm(g_padscore.alarm.GetPtr());
-			s_padscoreStaticData.Deallocate();
-		}
-
-		void rpl_entry(uint32 moduleHandle, coreinit::RplEntryReason reason) override
-		{
-			if (reason == coreinit::RplEntryReason::Loaded)
-				start();
-		}
-
 		void RPLMapped() override
 		{
-			s_padscoreStaticData.Allocate();
 			cafeExportRegister("padscore", WPADIsMplsAttached, LogType::InputAPI);
 			cafeExportRegister("padscore", WPADGetAccGravityUnit, LogType::InputAPI);
 

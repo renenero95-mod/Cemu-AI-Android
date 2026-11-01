@@ -1,7 +1,8 @@
 {
   "name": "mexce",
-  "version": "1.0.2",
+  "version": "1.0.1",
   "description": "Header-only JIT compiler for scalar mathematical expressions.",
   "homepage": "https://github.com/imakris/mexce",
-  "license": "BSD-2-Clause"
+  "license": "BSD-2-Clause",
+  "supports": "(windows | linux) & (x86 | x64)"
 }

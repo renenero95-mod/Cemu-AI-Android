@@ -26,7 +26,6 @@ class FileStream
 	uint32 readData(void* data, uint32 length);
 	bool readU64(uint64& v);
 	bool readU32(uint32& v);
-	bool readU16(uint16& v);
 	bool readU8(uint8& v);
 	bool readLine(std::string& line);
 
@@ -34,7 +33,6 @@ class FileStream
 	sint32 writeData(const void* data, sint32 length);
 	void writeU64(uint64 v);
 	void writeU32(uint32 v);
-	void writeU16(uint16 v);
 	void writeU8(uint8 v);
 
 	// writing (strings)
@@ -44,9 +42,6 @@ class FileStream
 
 	~FileStream();
 	FileStream() = default;
-
-	// atomic helper
-	static bool WriteFileAtomic(const fs::path& path, std::span<uint8> fileData, bool allowTargetFileRename = false);
 
  private:
 	FileStream(HANDLE hFile);

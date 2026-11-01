@@ -75,7 +75,6 @@ LatteTextureMtl::LatteTextureMtl(class MetalRenderer* mtlRenderer, Latte::E_DIM 
 	}
 
 	auto pixelFormat = GetMtlPixelFormat(format, isDepth);
-	m_isAlternateFormat = GetMtlPixelFormatInfo(format, isDepth).isAlternateFormat;
 	desc->setPixelFormat(pixelFormat);
 
 	MTL::TextureUsage usage = MTL::TextureUsageShaderRead | MTL::TextureUsagePixelFormatView;

@@ -1,9 +1,9 @@
 {
   "name": "crashrpt",
   "version": "1.4.3",
-  "port-version": 4,
+  "port-version": 3,
   "description": "A crash reporting system for Windows applications",
-  "homepage": "https://crashrpt.sourceforge.net",
+  "homepage": "http://crashrpt.sourceforge.net/",
   "license": "BSD-3-Clause",
   "supports": "!osx & !linux & !uwp & (x86 | x64)",
   "dependencies": [

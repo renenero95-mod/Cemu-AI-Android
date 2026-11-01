@@ -18,9 +18,9 @@ else()
     list(APPEND options "--without-glpk")
 endif()
 
-vcpkg_make_configure(
+vcpkg_configure_make(
     SOURCE_PATH "${SOURCE_PATH}"
-    AUTORECONF
+    AUTOCONFIG
     OPTIONS
         ${options}
         --with-lapack
@@ -33,7 +33,7 @@ vcpkg_make_configure(
         --disable-readline
 )
 
-vcpkg_make_install()
+vcpkg_install_make()
 vcpkg_copy_pdbs()
 vcpkg_fixup_pkgconfig()
 

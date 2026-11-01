@@ -1,10 +1,11 @@
 {
   "name": "libmypaint",
   "version": "1.6.1",
-  "port-version": 3,
+  "port-version": 1,
   "description": "Brush library used by MyPaint",
-  "homepage": "https://github.com/mypaint/libmypaint",
+  "homepage": "mypaint.org",
   "license": "ISC",
+  "supports": "!windows | mingw",
   "dependencies": [
     "glib",
     "json-c",

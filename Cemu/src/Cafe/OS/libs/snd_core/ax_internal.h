@@ -1,12 +1,8 @@
 #pragma once
 #include "Cafe/OS/libs/snd_core/ax.h"
 
-class COSStaticData;
-template<typename T, size_t count, size_t alignment> class CafeStaticVar;
-
 namespace snd_core
 {
-	extern COSStaticData g_sndStaticData;
 	struct sndGeneric_t
 	{
 		bool isInitialized{false};
@@ -222,7 +218,7 @@ namespace snd_core
 	void AXAux_incrementBufferIndex();
 
 	// internal mix buffers
-	extern CafeStaticVar<sint32, AX_SAMPLES_MAX * AX_TV_CHANNEL_COUNT, 32> __AXTVOutputBuffer;
-	extern CafeStaticVar<sint32, AX_SAMPLES_MAX * AX_DRC_CHANNEL_COUNT * 2, 32> __AXDRCOutputBuffer;
+	extern SysAllocator<sint32, AX_SAMPLES_MAX * AX_TV_CHANNEL_COUNT> __AXTVOutputBuffer;
+	extern SysAllocator<sint32, AX_SAMPLES_MAX * AX_DRC_CHANNEL_COUNT * 2> __AXDRCOutputBuffer;
 
 }

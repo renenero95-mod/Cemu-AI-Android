@@ -1,6 +1,7 @@
 {
   "name": "pffft",
-  "version": "1.0.0",
+  "version-date": "2021-10-09",
+  "port-version": 1,
   "description": "PFFFT, a pretty fast Fourier Transform.",
   "homepage": "https://bitbucket.org/jpommier/pffft/",
   "license": null,

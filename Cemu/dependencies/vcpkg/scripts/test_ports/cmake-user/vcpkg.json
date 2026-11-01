@@ -37,10 +37,8 @@
           "name": "bzip2"
         },
         {
-          "$comment": "CMake 3.17 for non-global ALIAS target",
           "$package": "CURL",
           "name": "curl",
-          "$since": "3.18",
           "default-features": false
         },
         {
@@ -63,10 +61,8 @@
           "default-features": false
         },
         {
-          "$comment": "CMake 3.22 for (transitive) FindMPI looking at pkg-config",
           "$package": "GDAL",
           "name": "gdal",
-          "$since": "3.22",
           "default-features": false,
           "platform": "!uwp"
         },
@@ -86,7 +82,7 @@
         {
           "$package": "LAPACK",
           "name": "lapack",
-          "platform": "!android & !(uwp & arm) & !(linux & arm)"
+          "platform": "!android & !(uwp & arm)"
         },
         {
           "$package": "GnuTLS",
@@ -128,10 +124,6 @@
           "name": "libxslt",
           "default-features": false,
           "platform": "!uwp & !mingw"
-        },
-        {
-          "$package": "Lua",
-          "name": "lua"
         },
         {
           "$package": "Curses",

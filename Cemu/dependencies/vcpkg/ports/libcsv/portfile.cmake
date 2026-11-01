@@ -10,12 +10,12 @@ vcpkg_from_github(
         Makefile.patch
 )
 
-vcpkg_make_configure(
+vcpkg_configure_make(
     SOURCE_PATH "${SOURCE_PATH}"
-    AUTORECONF
+    AUTOCONFIG
 )
 
-vcpkg_make_install()
+vcpkg_install_make()
 
 file(REMOVE_RECURSE "${CURRENT_PACKAGES_DIR}/debug/share")
 file(INSTALL "${SOURCE_PATH}/COPYING" DESTINATION "${CURRENT_PACKAGES_DIR}/share/libcsv" RENAME copyright)

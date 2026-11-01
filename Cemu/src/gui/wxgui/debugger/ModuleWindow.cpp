@@ -80,15 +80,16 @@ void ModuleWindow::OnGameLoaded()
 
 	m_modules->DeleteAllItems();
 
+	const auto module_count = RPLLoader_GetModuleCount();
 	const auto module_list = RPLLoader_GetModuleList();
-	for (size_t i = 0; i < module_list.size(); i++)
+	for (int i = 0; i < module_count; i++)
 	{
 		const auto module = module_list[i];
 		if (module)
 		{
 			wxListItem item;
 			item.SetId(i);
-			item.SetText(module->moduleName);
+			item.SetText(module->moduleName2);
 
 			const auto index = m_modules->InsertItem(item);
 			m_modules->SetItem(index, ColumnAddress, wxString::Format("%08x", module->regionMappingBase_text.GetMPTR()));
@@ -104,7 +105,7 @@ void ModuleWindow::OnGameLoaded()
 			if (patch_group->isApplied())
 			{
 				wxListItem item;
-				item.SetId(module_list.size() + patch_count);
+				item.SetId(module_count + patch_count);
 				item.SetText(std::string(patch_group->getName()));
 
 				const auto index = m_modules->InsertItem(item);
@@ -128,5 +129,6 @@ void ModuleWindow::OnLeftDClick(wxMouseEvent& event)
 	const auto address = std::stoul(text.ToStdString(), nullptr, 16);
 	if (address == 0)
 		return;
-	debugger_jumpToAddressInDisasm(address);
+	debuggerState.debugSession.instructionPointer = address;
+	g_debuggerDispatcher.MoveIP();
 }

@@ -1,5 +1,5 @@
 diff --git a/lib/CMakeLists.txt b/lib/CMakeLists.txt
-index 0f2f550..4003e6c 100644
+index 5f44454..d488e7a 100644
 --- a/lib/CMakeLists.txt
 +++ b/lib/CMakeLists.txt
 @@ -49,7 +49,6 @@ set(libinc_cpp
@@ -10,29 +10,25 @@ index 0f2f550..4003e6c 100644
      libconfigcpp.cc)
  
  if(MSVC)
-@@ -92,11 +91,13 @@ endif()
+@@ -82,8 +81,10 @@ set_version_info_from_makefile("Makefile.am" ${libname})
+ set_version_info_from_makefile("Makefile.am" ${libname}++)
  
  if(BUILD_SHARED_LIBS)
-     if(BUILD_CXX)
-+      target_sources(${libname}++ PRIVATE ${libsrc})
-       target_compile_definitions(${libname}++ PRIVATE LIBCONFIG_STATIC)
-     endif()
++    target_sources(${libname}++ PRIVATE ${libsrc})
+     target_compile_definitions(${libname}++ PRIVATE LIBCONFIG_STATIC)
  else()
++    target_link_libraries(${libname}++ PRIVATE ${libname})
      target_compile_definitions(${libname} PUBLIC LIBCONFIG_STATIC)
-     if(BUILD_CXX)
-+      target_link_libraries(${libname}++ PRIVATE ${libname})
-       target_compile_definitions(${libname}++ PUBLIC LIBCONFIG_STATIC LIBCONFIGXX_STATIC)
-     endif()
+     target_compile_definitions(${libname}++ PUBLIC LIBCONFIG_STATIC LIBCONFIGXX_STATIC)
  endif()
-@@ -154,9 +155,9 @@ if(MSVC)
+@@ -134,8 +135,8 @@ if(MSVC)
  endif()
  
  if(WIN32)
 -    target_link_libraries(${libname} shlwapi)
-+    target_link_libraries(${libname} PRIVATE shlwapi)
-     if(BUILD_CXX)
--      target_link_libraries(${libname}++ shlwapi)
-+      target_link_libraries(${libname}++ PRIVATE shlwapi)
-     endif()
+-    target_link_libraries(${libname}++ shlwapi)
++    target_link_libraries(${libname} PRIVATE  shlwapi)
++    target_link_libraries(${libname}++ PRIVATE shlwapi)
  endif()
  
+ target_include_directories(${libname}

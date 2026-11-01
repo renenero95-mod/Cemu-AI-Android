@@ -30,14 +30,14 @@ else()
     set(EXTRA_OPTIONS --with-gettext=no)
 endif()
 
-vcpkg_make_configure(
+vcpkg_configure_make(
      SOURCE_PATH "${SOURCE_PATH}"
-     AUTORECONF
+     AUTOCONFIG
      OPTIONS
         ${EXTRA_OPTIONS}
  )
 
-vcpkg_make_install()
+vcpkg_install_make()
 vcpkg_fixup_pkgconfig()
 
 file(REMOVE_RECURSE "${CURRENT_PACKAGES_DIR}/debug/include")

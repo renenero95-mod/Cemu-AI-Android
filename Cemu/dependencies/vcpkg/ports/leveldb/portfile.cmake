@@ -1,6 +1,4 @@
-if(VCPKG_TARGET_IS_WINDOWS)
-    vcpkg_check_linkage(ONLY_STATIC_LIBRARY)
-endif()
+vcpkg_check_linkage(ONLY_STATIC_LIBRARY)
 
 vcpkg_from_github(
     OUT_SOURCE_PATH SOURCE_PATH
@@ -27,10 +25,13 @@ vcpkg_cmake_configure(
         ${FEATURE_OPTIONS}
         -DLEVELDB_BUILD_TESTS=OFF
         -DLEVELDB_BUILD_BENCHMARKS=OFF
-        -DHAVE_TCMALLOC=OFF
+    OPTIONS_DEBUG
+        -DINSTALL_HEADERS=OFF
 )
+
 vcpkg_cmake_install()
-vcpkg_cmake_config_fixup(CONFIG_PATH "lib/cmake/leveldb")
+
+vcpkg_cmake_config_fixup(CONFIG_PATH "lib/cmake/${PORT}")
 
 
 file(REMOVE_RECURSE "${CURRENT_PACKAGES_DIR}/debug/include")

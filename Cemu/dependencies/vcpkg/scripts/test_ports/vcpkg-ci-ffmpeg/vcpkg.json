@@ -41,6 +41,7 @@
             "openmpt",
             "openssl",
             "opus",
+            "postproc",
             "snappy",
             "soxr",
             "speex",
@@ -179,7 +180,7 @@
           "features": [
             "qsv"
           ],
-          "platform": "(x64 | x86) & (windows | linux) & !uwp"
+          "platform": "!arm & (android | linux | windows) & !uwp"
         },
         {
           "name": "ffmpeg",
