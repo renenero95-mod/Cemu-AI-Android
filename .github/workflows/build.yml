@@ -10,10 +10,16 @@ jobs:
     runs-on: ubuntu-24.04
     
     steps:
-    - name: Checkout Code
+    - name: Checkout User Repo
       uses: actions/checkout@v4
-      with:
-        submodules: "recursive"
+
+    - name: Clone Cemu Android Repo
+      run: |
+        git clone --recursive -b android-port https://github.com/SapphireRhodonite/Cemu.git Cemu
+
+    - name: Modify Application ID
+      run: |
+        sed -i 's/applicationId = ".*"/applicationId = "com.cemu.aimod"/g' Cemu/src/android/app/build.gradle.kts
 
     - name: Install system dependencies
       run: |
