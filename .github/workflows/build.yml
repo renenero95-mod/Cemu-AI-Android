@@ -13,9 +13,9 @@ jobs:
     - name: Checkout User Repo
       uses: actions/checkout@v4
 
-    - name: Clone Cemu Android Repo
+    - name: Clone Official Cemu Repo
       run: |
-        git clone --recursive -b android-port https://github.com/SapphireRhodonite/Cemu.git Cemu
+        git clone --recursive https://github.com/cemu-project/Cemu.git Cemu
 
     - name: Modify Application ID
       run: |
