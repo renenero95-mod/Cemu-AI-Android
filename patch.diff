@@ -1,21 +1,31 @@
-diff --git a/Cemu/src/Cafe/HW/Espresso/Interpreter/PPCInterpreterLoadStore.hpp b/Cemu/src/Cafe/HW/Espresso/Interpreter/PPCInterpreterLoadStore.hpp.temp
-index ea7bb038..a2134c08 100644
---- a/Cemu/src/Cafe/HW/Espresso/Interpreter/PPCInterpreterLoadStore.hpp
-+++ b/Cemu/src/Cafe/HW/Espresso/Interpreter/PPCInterpreterLoadStore.hpp.temp
-@@ -282,7 +282,15 @@ static void PPCInterpreter_LWZ(PPCInterpreter_t* hCPU, uint32 Opcode)
- 	sint32 rA, rD;
- 	uint32 imm;
- 	PPC_OPC_TEMPL_D_SImm(Opcode, rD, rA, imm);
--	uint32 v = ppcItpCtrl::ppcMem_readDataU32(hCPU, (rA ? hCPU->gpr[rA] : 0) + imm);
-+	uint32 addr = (rA ? hCPU->gpr[rA] : 0) + imm;
-+	if (!ppcItpCtrl::isValidAddress(hCPU, addr))
-+	{
-+		hCPU->gpr[rD] = 0;
-+		DSI_EXIT();
-+		PPCInterpreter_nextInstruction(hCPU);
-+		return;
-+	}
-+	uint32 v = ppcItpCtrl::ppcMem_readDataU32(hCPU, addr);
- 	DSI_EXIT();
- 	hCPU->gpr[rD] = v;
- 	PPCInterpreter_nextInstruction(hCPU);
+diff --git a/Cemu/src/Cafe/HW/Espresso/Interpreter/PPCInterpreterImpl.cpp b/Cemu/src/Cafe/HW/Espresso/Interpreter/PPCInterpreterImpl.cpp.temp
+index 547472ab..3e208353 100644
+--- a/Cemu/src/Cafe/HW/Espresso/Interpreter/PPCInterpreterImpl.cpp
++++ b/Cemu/src/Cafe/HW/Espresso/Interpreter/PPCInterpreterImpl.cpp.temp
+@@ -65,13 +65,20 @@ public:
+ 	{
+ 		uint64 v = *(uint64*)(memory_getPointerFromVirtualOffset(address));
+ 		return CPU_swapEndianU64(v);
+-	}
+-
+ 	inline static uint32 ppcMem_readDataU32(PPCInterpreter_t* hCPU, uint32 address)
+-	{
+-		uint32 v = *(uint32*)(memory_getPointerFromVirtualOffset(address));
+-		return CPU_swapEndianU32(v);
+-	}
++{
++    void* ptr = memory_getPointerFromVirtualOffset(address);
++    if (!ptr)
++    {
++        PPCState_t_dataAccessFault(hCPU, address);
++        return 0;
++    }
++    
++    uint32 v;
++    std::memcpy(&v, ptr, sizeof(uint32));
++    
++    return CPU_swapEndianU32(v);
++}
+ 
+ 	inline static uint16 ppcMem_readDataU16(PPCInterpreter_t* hCPU, uint32 address)
+ 	{
