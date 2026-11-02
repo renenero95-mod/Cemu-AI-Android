@@ -1,4 +1,4 @@
-name: Build Cemu Android APK
+name: Build Cemu Android APK with AI Patch
 
 on:
   push:
@@ -10,21 +10,32 @@ jobs:
     runs-on: ubuntu-24.04
     
     steps:
-    - name: Checkout User Repo
+    - name: Checkout User Repo (to get patch.diff)
       uses: actions/checkout@v4
 
     - name: Clone Cemu Android Repo
       run: |
         git clone --recursive -b android-port https://github.com/SapphireRhodonite/Cemu.git Cemu
 
-    - name: Find and Modify Application ID
+    - name: Apply AI Patch
+      run: |
+        if [ -f patch.diff ]; then
+          echo "✅ Applicando la patch generata dall'AI..."
+          cd Cemu
+          git apply ../patch.diff
+          cd ..
+        else
+          echo "⚠️ Nessuna patch trovata, compilo il codice originale."
+        fi
+
+    - name: Modify Application ID
       run: |
         BUILD_FILE=$(find Cemu -name "build.gradle.kts" -path "*/app/*" | head -n 1)
-        if [ -z "$BUILD_FILE" ]; then
-          echo "ERRORE: File di build non trovato!"
-          exit 1
+        if [ -n "$BUILD_FILE" ]; then
+          sed -i 's/applicationId = ".*"/applicationId = "com.cemu.aimod"/g' "$BUILD_FILE"
+        else
+          echo "Attenzione: build.gradle.kts non trovato!"
         fi
-        sed -i 's/applicationId = ".*"/applicationId = "com.cemu.aimod"/g' "$BUILD_FILE"
 
     - name: Install system dependencies
       run: |
