@@ -13,9 +13,9 @@ jobs:
     - name: Checkout User Repo (to get patch.diff)
       uses: actions/checkout@v4
 
-    - name: Clone Cemu Android Repo
+    - name: Clone Official SSimco Cemu Repo
       run: |
-        git clone --recursive -b android-port https://github.com/SapphireRhodonite/Cemu.git Cemu
+        git clone --recursive -b android-port https://github.com/SSimco/Cemu.git Cemu
 
     - name: Apply AI Patch
       run: |
