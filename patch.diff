@@ -1,36 +1,106 @@
-diff --git a/coreinit_original.cpp b/Cemu/src/Cafe/OS/libs/coreinit/coreinit_FS.cpp
-index 12ddb8df..cf730090 100644
---- a/coreinit_original.cpp
-+++ b/Cemu/src/Cafe/OS/libs/coreinit/coreinit_FS.cpp
-@@ -14,6 +14,31 @@
- #include "Cafe/CafeSystem.h"
- #include "Cafe/TitleList/TitleInfo.h"
+diff --git a/orig_SAF.cpp b/Cemu/src/Cafe/Filesystem/fscDeviceAndroidSAF.cpp
+index 29a8902d..fba1a6d7 100644
+--- a/orig_SAF.cpp
++++ b/Cemu/src/Cafe/Filesystem/fscDeviceAndroidSAF.cpp
+@@ -4,6 +4,33 @@
+ #include "Common/FileStream.h"
+ #include "Common/android/FilesystemAndroid.h"
  
-+#include <unistd.h>
-+#include <errno.h>
-+#include <stdint.h>
-+#include <sys/types.h>
-+
-+static ssize_t safe_saf_read(int fd, void* buffer, size_t count, int64_t offset) {
-+    size_t totalRead = 0;
-+    char* bufPtr = static_cast<char*>(buffer);
-+    while (totalRead < count) {
-+        ssize_t bytesRead = 0;
-+        if (offset != -1) {
-+            bytesRead = safe_saf_read(fd, bufPtr + totalRead, count - totalRead, offset + totalRead);
-+        } else {
-+            bytesRead = safe_saf_read(fd, bufPtr + totalRead, count - totalRead);
-+        }
-+        if (bytesRead < 0) {
-+            if (errno == EINTR) continue;
-+            return -1;
-+        }
-+        if (bytesRead == 0) break;
-+        totalRead += bytesRead;
-+    }
-+    return totalRead;
++// Android SAF file descriptors can return short reads (fewer bytes than requested, even though
++// the file has more data). A single FileStream::readData() call is therefore not enough:
++// keep reading until 'size' bytes have been delivered, EOF is hit, or the stream stops making progress.
++// Returns the number of bytes actually read (< size only on real EOF / persistent error).
++static uint32 safe_saf_read(FileStream* fs, void* buffer, uint32 size)
++{
++	constexpr int MAX_CONSECUTIVE_EMPTY_READS = 3; // tolerate transient 0-byte results (EINTR/EAGAIN-like)
++	uint8* bufPtr = static_cast<uint8*>(buffer);
++	uint32 totalRead = 0;
++	int emptyReads = 0;
++	while (totalRead < size)
++	{
++		uint32 bytesRead = fs->readData(bufPtr + totalRead, size - totalRead);
++		if (bytesRead == 0)
++		{
++			if (++emptyReads >= MAX_CONSECUTIVE_EMPTY_READS)
++				break;
++			continue;
++		}
++		emptyReads = 0;
++		totalRead += bytesRead;
++	}
++	if (totalRead < size)
++		cemuLog_log(LogType::Force, "safe_saf_read: short read (requested 0x{:x}, got 0x{:x})", size, totalRead);
++	return totalRead;
 +}
 +
- #define FS_CB_PLACEHOLDER_FINISHCMD (MPTR)(0xF122330E)
+ FSCVirtualFile_AndroidSAF::~FSCVirtualFile_AndroidSAF()
+ {
+ 	if (m_type == FSC_TYPE_FILE)
+@@ -63,10 +90,11 @@ uint32 FSCVirtualFile_AndroidSAF::fscReadData(void* buffer, uint32 size)
+ 		cemu_assert_suspicious();
+ 		return 0;
+ 	}
+-	uint32 bytesLeft = (uint32)(m_fileSize - m_seek);
+-	bytesLeft = std::min(bytesLeft, 0x7FFFFFFFu);
+-	sint32 bytesToRead = std::min(bytesLeft, size);
+-	uint32 bytesRead = m_fs->readData(buffer, bytesToRead);
++	if (m_seek >= m_fileSize)
++		return 0;
++	uint32 bytesLeft = (uint32)std::min<uint64>(m_fileSize - m_seek, 0x7FFFFFFFu);
++	uint32 bytesToRead = std::min(bytesLeft, size);
++	uint32 bytesRead = safe_saf_read(m_fs, buffer, bytesToRead);
+ 	m_seek += bytesRead;
+ 	return bytesRead;
+ }
+diff --git a/orig_WUA.cpp b/Cemu/src/Cafe/Filesystem/fscDeviceWua.cpp
+index f9014bdb..0b745c05 100644
+--- a/orig_WUA.cpp
++++ b/Cemu/src/Cafe/Filesystem/fscDeviceWua.cpp
+@@ -1,6 +1,32 @@
+ #include "Cafe/Filesystem/fsc.h"
+ #include <zarchive/zarchivereader.h>
  
- // return false if src+'\0' does not fit into dst
++// ZArchiveReader reads through the (Android SAF backed) file stream and may return fewer bytes than requested.
++// Keep reading from the advancing offset until the full range has been delivered, EOF is hit,
++// or no progress is made. Returns the number of bytes actually read.
++static uint32 safe_archive_read(ZArchiveReader* archive, ZArchiveNodeHandle node, uint32 offset, uint32 size, void* buffer)
++{
++	constexpr int MAX_CONSECUTIVE_EMPTY_READS = 3;
++	uint8* bufPtr = static_cast<uint8*>(buffer);
++	uint32 totalRead = 0;
++	int emptyReads = 0;
++	while (totalRead < size)
++	{
++		uint32 bytesRead = (uint32)archive->ReadFromFile(node, (uint64)offset + totalRead, (uint64)(size - totalRead), bufPtr + totalRead);
++		if (bytesRead == 0)
++		{
++			if (++emptyReads >= MAX_CONSECUTIVE_EMPTY_READS)
++				break;
++			continue;
++		}
++		emptyReads = 0;
++		totalRead += bytesRead;
++	}
++	if (totalRead < size)
++		cemuLog_log(LogType::Force, "WUA: short read (requested 0x{:x}, got 0x{:x})", size, totalRead);
++	return totalRead;
++}
++
+ class FSCDeviceWuaFileCtx : public FSCVirtualFile
+ {
+ 	friend class fscDeviceWUAC;
+@@ -54,9 +80,12 @@ public:
+ 		if (m_fscType != FSC_TYPE_FILE)
+ 			return 0;
+ 		cemu_assert(size < (2ULL * 1024 * 1024 * 1024)); // single read operation larger than 2GiB not supported
+-		uint32 bytesLeft = fscDeviceWuaFile_getFileSize() - m_seek;
++		uint32 fileSize = fscDeviceWuaFile_getFileSize();
++		if (m_seek >= fileSize)
++			return 0;
++		uint32 bytesLeft = fileSize - m_seek;
+ 		uint32 bytesToRead = (std::min)(bytesLeft, (uint32)size);
+-		uint32 bytesSuccessfullyRead = (uint32)m_archive->ReadFromFile(m_nodeHandle, m_seek, bytesToRead, buffer);
++		uint32 bytesSuccessfullyRead = safe_archive_read(m_archive, m_nodeHandle, m_seek, bytesToRead, buffer);
+ 		m_seek += bytesSuccessfullyRead;
+ 		return bytesSuccessfullyRead;
+ 	}
