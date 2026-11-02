@@ -1,38 +1,70 @@
-diff --git a/orig_fsc.cpp b/Cemu/src/Cafe/Filesystem/fsc.cpp
-index 031f2fb2..d68dafeb 100644
---- a/orig_fsc.cpp
-+++ b/Cemu/src/Cafe/Filesystem/fsc.cpp
-@@ -375,7 +375,7 @@ private:
- };
+diff --git a/orig_log.cpp b/Cemu/src/Cemu/Logging/CemuLogging.cpp
+index f2d9ac05..04ec9758 100644
+--- a/orig_log.cpp
++++ b/Cemu/src/Cemu/Logging/CemuLogging.cpp
+@@ -11,7 +11,10 @@
  
- // Open file or directory from virtual file system
--FSCVirtualFile* fsc_open(const char* path, FSC_ACCESS_FLAG accessFlags, sint32* fscStatus, sint32 maxPriority)
-+static FSCVirtualFile* fsc_openImpl(const char* path, FSC_ACCESS_FLAG accessFlags, sint32* fscStatus, sint32 maxPriority)
+ #include <fmt/printf.h>
+ 
+-uint64 s_loggingFlagMask = cemuLog_getFlag(LogType::Force);
++// CoreinitFile (FS API calls) is forced on to debug Android file-access problems. Remove once solved.
++static constexpr uint64 s_forcedLoggingFlags = (1ULL << (uint64)LogType::Force) | (1ULL << (uint64)LogType::CoreinitFile);
++
++uint64 s_loggingFlagMask = s_forcedLoggingFlags;
+ 
+ class LoggingDispatcher
  {
- 	cemu_assert_debug(HAS_FLAG(accessFlags, FSC_ACCESS_FLAG::OPEN_FILE) || HAS_FLAG(accessFlags, FSC_ACCESS_FLAG::OPEN_DIR)); // must open either file or directory
- 	FSCVirtualFile* dirList[FSC_PRIORITY_COUNT];
-@@ -438,6 +438,15 @@ FSCVirtualFile* fsc_open(const char* path, FSC_ACCESS_FLAG accessFlags, sint32*
- 	return nullptr;
+@@ -161,7 +164,8 @@ void cemuLog_createLogFile(bool triggeredByCrash)
+ 		return;
+ 
+ 	const auto path = cemuLog_GetLogFilePath();
+-	LogContext.file_stream.open(path, std::ios::out);
++	// append: log.txt is never overwritten, every run adds to the same file
++	LogContext.file_stream.open(path, std::ios::out | std::ios::app);
+ 	if (LogContext.file_stream.fail())
+ 	{
+ 		cemu_assert_debug(false);
+@@ -171,6 +175,9 @@ void cemuLog_createLogFile(bool triggeredByCrash)
+ 	LogContext.threadRunning.store(true);
+ 	LogContext.log_writer = std::thread(cemuLog_thread);
+ 	lock.unlock();
++
++	// build canary: lets us verify that the installed APK really contains the latest patches
++	cemuLog_writeLineToLog(fmt::format("CemuFixer build marker: CemuLogging.cpp compiled {} {} (append-log, session separator, forced CoreinitFile)", __DATE__, __TIME__));
  }
  
-+// Diagnostic wrapper: always logs every open request issued by the title together with its result.
-+// (CoreinitFile logging only traces export calls and needs advanced PPC logging, so we log here directly.)
-+FSCVirtualFile* fsc_open(const char* path, FSC_ACCESS_FLAG accessFlags, sint32* fscStatus, sint32 maxPriority)
+ void cemuLog_writeLineToLog(std::string_view text, bool date, bool new_line)
+@@ -198,6 +205,15 @@ void cemuLog_writeLineToLog(std::string_view text, bool date, bool new_line)
+ 	LogContext.log_condition.notify_one();
+ }
+ 
++static void cemuLog_writeSessionSeparator()
 +{
-+	FSCVirtualFile* vf = fsc_openImpl(path, accessFlags, fscStatus, maxPriority);
-+	cemuLog_log(LogType::Force, "FSC open: '{}' flags=0x{:x} -> {} (status {})", path ? path : "(null)", (uint32)accessFlags, vf ? "OK" : "FAILED", (sint32)*fscStatus);
-+	return vf;
++	auto lock = cemuLog_acquire(); // keep the three banner lines together
++	cemuLog_writeLineToLog("", false, true);
++	cemuLog_writeLineToLog("=========================================================", false, true);
++	cemuLog_writeLineToLog("================== NUOVA SESSIONE DI GIOCO ==================", false, true);
++	cemuLog_writeLineToLog("=========================================================", false, true);
 +}
 +
- /*
-  * Open file using virtual path
-  */
-@@ -609,6 +618,8 @@ uint32 fsc_readFile(FSCVirtualFile* fscFile, void* buffer, uint32 size)
- 	fscEnter();
- 	uint32 fscStatus = fscFile->fscReadData(buffer, size);
- 	fscLeave();
-+	if (fscStatus != size)
-+		cemuLog_log(LogType::Force, "FSC read: requested 0x{:x} bytes but got 0x{:x}", size, fscStatus);
- 	return fscStatus;
- }
+ bool cemuLog_log(LogType type, std::string_view text)
+ {
+ 	if (!cemuLog_isLoggingEnabled(type))
+@@ -206,6 +222,10 @@ bool cemuLog_log(LogType type, std::string_view text)
+ 	if (LaunchSettings::Verbose())
+ 		std::cout << text << std::endl;
  
++	// log.txt is opened in append mode: mark the start of every game launch with a clearly visible banner (no timestamp)
++	if (type == LogType::Force && text.find("Run title") != std::string_view::npos)
++		cemuLog_writeSessionSeparator();
++
+ 	cemuLog_writeLineToLog(text);
+ 
+ 	const auto it = std::find_if(g_logging_window_mapping.cbegin(), g_logging_window_mapping.cend(),
+@@ -263,5 +283,5 @@ std::unique_lock<decltype(LogContext.log_mutex)> cemuLog_acquire()
+ 
+ void cemuLog_setActiveLoggingFlags(uint64 flagMask)
+ {
+-	s_loggingFlagMask = flagMask | cemuLog_getFlag(LogType::Force);
++	s_loggingFlagMask = flagMask | s_forcedLoggingFlags;
+ }
