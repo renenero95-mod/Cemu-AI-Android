@@ -48,9 +48,24 @@ index 2555101..1d989bf 100644
  	else
  	{
 diff --git a/src/Cafe/HW/Espresso/Recompiler/PPCRecompilerImlGen.cpp b/src/Cafe/HW/Espresso/Recompiler/PPCRecompilerImlGen.cpp
-index e76a53f..d1ff9d5 100644
+index e76a53f..2a48412 100644
 --- a/src/Cafe/HW/Espresso/Recompiler/PPCRecompilerImlGen.cpp
 +++ b/src/Cafe/HW/Espresso/Recompiler/PPCRecompilerImlGen.cpp
+@@ -2008,12 +2008,12 @@ bool PPCRecompiler_decodePPCInstruction(ppcImlGenContext_t* ppcImlGenContext)
+ 				unsupportedInstructionFound = true;
+ 			ppcImlGenContext->hasFPUInstruction = true;
+ 			break;
+-		case 12: // PS_MULS0
++		case 6: // PS_MULS0
+ 			if (PPCRecompilerImlGen_PS_MULSX(ppcImlGenContext, opcode, false) == false)
+ 				unsupportedInstructionFound = true;
+ 			ppcImlGenContext->hasFPUInstruction = true;
+ 			break;
+-		case 13: // PS_MULS1
++		case 7: // PS_MULS1
+ 			if (PPCRecompilerImlGen_PS_MULSX(ppcImlGenContext, opcode, true) == false)
+ 				unsupportedInstructionFound = true;
+ 			ppcImlGenContext->hasFPUInstruction = true;
 @@ -2973,7 +2973,14 @@ bool PPCIMLGen_FillBasicBlock(ppcImlGenContext_t& ppcImlGenContext, PPCBasicBloc
  
  		if (PPCRecompiler_decodePPCInstruction(&ppcImlGenContext))
