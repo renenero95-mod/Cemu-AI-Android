@@ -1,70 +1,109 @@
-diff --git a/src/Cemu/Logging/CemuLogging.cpp b/src/Cemu/Logging/CemuLogging.cpp
-index f2d9ac05..04ec9758 100644
---- a/src/Cemu/Logging/CemuLogging.cpp
-+++ b/src/Cemu/Logging/CemuLogging.cpp
-@@ -11,7 +11,10 @@
- 
- #include <fmt/printf.h>
- 
--uint64 s_loggingFlagMask = cemuLog_getFlag(LogType::Force);
-+// CoreinitFile (FS API calls) is forced on to debug Android file-access problems. Remove once solved.
-+static constexpr uint64 s_forcedLoggingFlags = (1ULL << (uint64)LogType::Force) | (1ULL << (uint64)LogType::CoreinitFile);
-+
-+uint64 s_loggingFlagMask = s_forcedLoggingFlags;
- 
- class LoggingDispatcher
- {
-@@ -161,7 +164,8 @@ void cemuLog_createLogFile(bool triggeredByCrash)
- 		return;
- 
- 	const auto path = cemuLog_GetLogFilePath();
--	LogContext.file_stream.open(path, std::ios::out);
-+	// append: log.txt is never overwritten, every run adds to the same file
-+	LogContext.file_stream.open(path, std::ios::out | std::ios::app);
- 	if (LogContext.file_stream.fail())
+diff --git a/src/Cafe/OS/libs/coreinit/coreinit_MEM.cpp b/src/Cafe/OS/libs/coreinit/coreinit_MEM.cpp
+index 83658f3c..187b5cde 100644
+--- a/src/Cafe/OS/libs/coreinit/coreinit_MEM.cpp
++++ b/src/Cafe/OS/libs/coreinit/coreinit_MEM.cpp
+@@ -465,6 +465,8 @@ namespace coreinit
  	{
- 		cemu_assert_debug(false);
-@@ -171,6 +175,9 @@ void cemuLog_createLogFile(bool triggeredByCrash)
- 	LogContext.threadRunning.store(true);
- 	LogContext.log_writer = std::thread(cemuLog_thread);
- 	lock.unlock();
+ 		void* mem = MEMAllocFromExpHeapEx(gDefaultHeap, size, 0x40);
+ 		cemuLog_logDebug(LogType::CoreinitMem, "MEMAllocFromDefaultHeap(0x{:08x}) Result: 0x{:08x}", size, memory_getVirtualOffsetFromPointer(mem));
++		if (!mem)
++			cemuLog_log(LogType::Force, "MEM ALLOC FAILED: MEMAllocFromDefaultHeap(size=0x{:x}) -> NULL", size);
+ 		return mem;
+ 	}
+ 
+@@ -479,6 +481,8 @@ namespace coreinit
+ 	{
+ 		void* mem = MEMAllocFromExpHeapEx(gDefaultHeap, size, alignment);
+ 		cemuLog_logDebug(LogType::CoreinitMem, "MEMAllocFromDefaultHeap(0x{:08x},{}) Result: 0x{:08x}", size, alignment, memory_getVirtualOffsetFromPointer(mem));
++		if (!mem)
++			cemuLog_log(LogType::Force, "MEM ALLOC FAILED: MEMAllocFromDefaultHeapEx(size=0x{:x}, alignment={}) -> NULL", size, alignment);
+ 		return mem;
+ 	}
+ 
+diff --git a/src/Cafe/OS/libs/coreinit/coreinit_MEM_ExpHeap.cpp b/src/Cafe/OS/libs/coreinit/coreinit_MEM_ExpHeap.cpp
+index 552a610f..65709039 100644
+--- a/src/Cafe/OS/libs/coreinit/coreinit_MEM_ExpHeap.cpp
++++ b/src/Cafe/OS/libs/coreinit/coreinit_MEM_ExpHeap.cpp
+@@ -475,6 +475,12 @@ void* MEMAllocFromExpHeapEx(MEMHeapHandle heap, uint32 size, sint32 alignment)
+ 
+ 	heap->ReleaseLock();
+ 
++	// CemuFixer diagnostics: every allocation (default heap included) ends up here
++	if (!mem)
++		cemuLog_log(LogType::Force, "MEM ALLOC FAILED (ExpHeap): heap=0x{:08x} size=0x{:x} alignment={} -> NULL", MEMPTR<void>((void*)heap).GetMPTR(), size, alignment);
++	else if (size >= 0x400000)
++		cemuLog_log(LogType::Force, "MEM big alloc (ExpHeap): heap=0x{:08x} size=0x{:x} alignment={} -> 0x{:08x}", MEMPTR<void>((void*)heap).GetMPTR(), size, alignment, MEMPTR<void>(mem).GetMPTR());
 +
-+	// build canary: lets us verify that the installed APK really contains the latest patches
-+	cemuLog_writeLineToLog(fmt::format("CemuFixer build marker: CemuLogging.cpp compiled {} {} (append-log, session separator, forced CoreinitFile)", __DATE__, __TIME__));
+ 	return mem;
  }
  
- void cemuLog_writeLineToLog(std::string_view text, bool date, bool new_line)
-@@ -198,6 +205,15 @@ void cemuLog_writeLineToLog(std::string_view text, bool date, bool new_line)
- 	LogContext.log_condition.notify_one();
- }
+diff --git a/src/Cafe/Filesystem/fscDeviceWua.cpp b/src/Cafe/Filesystem/fscDeviceWua.cpp
+index f9014bdb..0eb0ce23 100644
+--- a/src/Cafe/Filesystem/fscDeviceWua.cpp
++++ b/src/Cafe/Filesystem/fscDeviceWua.cpp
+@@ -1,6 +1,32 @@
+ #include "Cafe/Filesystem/fsc.h"
+ #include <zarchive/zarchivereader.h>
  
-+static void cemuLog_writeSessionSeparator()
++// ZArchiveReader reads through the (Android SAF backed) file stream and may return fewer bytes than requested.
++// Keep reading from the advancing offset until the full range has been delivered, EOF is hit,
++// or no progress is made. Returns the number of bytes actually read.
++static uint32 safe_archive_read(ZArchiveReader* archive, ZArchiveNodeHandle node, uint32 offset, uint32 size, void* buffer)
 +{
-+	auto lock = cemuLog_acquire(); // keep the three banner lines together
-+	cemuLog_writeLineToLog("", false, true);
-+	cemuLog_writeLineToLog("=========================================================", false, true);
-+	cemuLog_writeLineToLog("================== NUOVA SESSIONE DI GIOCO ==================", false, true);
-+	cemuLog_writeLineToLog("=========================================================", false, true);
++	constexpr int MAX_CONSECUTIVE_EMPTY_READS = 3;
++	uint8* bufPtr = static_cast<uint8*>(buffer);
++	uint32 totalRead = 0;
++	int emptyReads = 0;
++	while (totalRead < size)
++	{
++		uint32 bytesRead = (uint32)archive->ReadFromFile(node, (uint64)offset + totalRead, (uint64)(size - totalRead), bufPtr + totalRead);
++		if (bytesRead == 0)
++		{
++			if (++emptyReads >= MAX_CONSECUTIVE_EMPTY_READS)
++				break;
++			continue;
++		}
++		emptyReads = 0;
++		totalRead += bytesRead;
++	}
++	if (totalRead < size)
++		cemuLog_log(LogType::Force, "WUA: short read (requested 0x{:x}, got 0x{:x})", size, totalRead);
++	return totalRead;
 +}
 +
- bool cemuLog_log(LogType type, std::string_view text)
+ class FSCDeviceWuaFileCtx : public FSCVirtualFile
  {
- 	if (!cemuLog_isLoggingEnabled(type))
-@@ -206,6 +222,10 @@ bool cemuLog_log(LogType type, std::string_view text)
- 	if (LaunchSettings::Verbose())
- 		std::cout << text << std::endl;
+ 	friend class fscDeviceWUAC;
+@@ -54,9 +80,22 @@ public:
+ 		if (m_fscType != FSC_TYPE_FILE)
+ 			return 0;
+ 		cemu_assert(size < (2ULL * 1024 * 1024 * 1024)); // single read operation larger than 2GiB not supported
+-		uint32 bytesLeft = fscDeviceWuaFile_getFileSize() - m_seek;
++		uint32 fileSize = fscDeviceWuaFile_getFileSize();
++		if (m_seek >= fileSize)
++			return 0;
++		uint32 bytesLeft = fileSize - m_seek;
+ 		uint32 bytesToRead = (std::min)(bytesLeft, (uint32)size);
+-		uint32 bytesSuccessfullyRead = (uint32)m_archive->ReadFromFile(m_nodeHandle, m_seek, bytesToRead, buffer);
++		uint32 bytesSuccessfullyRead = safe_archive_read(m_archive, m_nodeHandle, m_seek, bytesToRead, buffer);
++		if (bytesSuccessfullyRead >= 4096)
++		{
++			// CemuFixer diagnostics: detect "successful" reads that deliver zero-filled data
++			const uint8* data = static_cast<const uint8*>(buffer);
++			uint32 zeroBytes = 0;
++			for (uint32 i = 0; i < bytesSuccessfullyRead; i++)
++				zeroBytes += (data[i] == 0);
++			cemuLog_log(LogType::Force, "WUA read: seek=0x{:x} size=0x{:x} got=0x{:x} zeroBytes=0x{:x} first8={:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}",
++				m_seek, (uint32)size, bytesSuccessfullyRead, zeroBytes, data[0], data[1], data[2], data[3], data[4], data[5], data[6], data[7]);
++		}
+ 		m_seek += bytesSuccessfullyRead;
+ 		return bytesSuccessfullyRead;
+ 	}
+@@ -169,5 +208,6 @@ public:
  
-+	// log.txt is opened in append mode: mark the start of every game launch with a clearly visible banner (no timestamp)
-+	if (type == LogType::Force && text.find("Run title") != std::string_view::npos)
-+		cemuLog_writeSessionSeparator();
-+
- 	cemuLog_writeLineToLog(text);
- 
- 	const auto it = std::find_if(g_logging_window_mapping.cbegin(), g_logging_window_mapping.cend(),
-@@ -263,5 +283,5 @@ std::unique_lock<decltype(LogContext.log_mutex)> cemuLog_acquire()
- 
- void cemuLog_setActiveLoggingFlags(uint64 flagMask)
+ bool FSCDeviceWUA_Mount(std::string_view mountPath, std::string_view destinationBaseDir, ZArchiveReader* archive, sint32 priority)
  {
--	s_loggingFlagMask = flagMask | cemuLog_getFlag(LogType::Force);
-+	s_loggingFlagMask = flagMask | s_forcedLoggingFlags;
++	cemuLog_log(LogType::Force, "CemuFixer build marker: fscDeviceWua.cpp compiled {} {} (safe_archive_read, WUA read diagnostics)", __DATE__, __TIME__);
+ 	return fsc_mount(mountPath, destinationBaseDir, &fscDeviceWUAC::instance(), archive, priority) == FSC_STATUS_OK;
  }
+\ No newline at end of file
