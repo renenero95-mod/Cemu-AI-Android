@@ -1,0 +1,93 @@
+diff --git a/src/Cafe/HW/Espresso/Interpreter/PPCInterpreterImpl.cpp b/src/Cafe/HW/Espresso/Interpreter/PPCInterpreterImpl.cpp
+index 547472ab..c9b75d9a 100644
+--- a/src/Cafe/HW/Espresso/Interpreter/PPCInterpreterImpl.cpp
++++ b/src/Cafe/HW/Espresso/Interpreter/PPCInterpreterImpl.cpp
+@@ -65,11 +65,84 @@ public:
+ 	{
+ 		uint64 v = *(uint64*)(memory_getPointerFromVirtualOffset(address));
+ 		return CPU_swapEndianU64(v);
+-	}
+-
+-	inline static uint32 ppcMem_readDataU32(PPCInterpreter_t* hCPU, uint32 address)
++			inline static uint32 ppcMem_readDataU32(PPCInterpreter_t* hCPU, uint32 address)
+ 	{
+-		uint32 v = *(uint32*)(memory_getPointerFromVirtualOffset(address));
++		if (!memory_isValidRange(address, sizeof(uint32)))
++		{
++			const uint32 ip = hCPU->instructionPointer;
++
++			if (memory_isValidRange(ip, sizeof(uint32)))
++			{
++				const uint32 instruction = memory_readCodeU32(hCPU, ip);
++				const uint32 opcode = instruction >> 26;
++
++				if (opcode == 32) // LWZ
++				{
++					const uint32 rt = (instruction >> 21) & 0x1F;
++					const uint32 ra = (instruction >> 16) & 0x1F;
++					const sint16 displacement = (sint16)(instruction & 0xFFFF);
++
++					cemuLog_log(LogType::Force,
++						"[PPC READ FAULT] LWZ"
++						" EA=0x{:08X}"
++						" IP=0x{:08X}"
++						" instruction=0x{:08X}"
++						" RT=r{}"
++						" RA=r{}"
++						" displacement={}",
++						address,
++						ip,
++						instruction,
++						rt,
++						ra,
++						displacement);
++				}
++				else
++				{
++					cemuLog_log(LogType::Force,
++						"[PPC READ FAULT] Non-LWZ"
++						" EA=0x{:08X}"
++						" IP=0x{:08X}"
++						" instruction=0x{:08X}"
++						" opcode={}",
++						address,
++						ip,
++						instruction,
++						opcode);
++				}
++			}
++			else
++			{
++				cemuLog_log(LogType::Force,
++					"[PPC READ FAULT] EA=0x{:08X}"
++					" IP=0x{:08X}"
++					" (invalid instruction address)",
++					address,
++					ip);
++			}
++
++			PPCState_t_dataAccessFault(hCPU, address);
++			return 0;
++		}
++
++		void* ptr = memory_getPointerFromVirtualOffset(address);
++
++		if (ptr == nullptr)
++		{
++			cemuLog_log(LogType::Force,
++				"[PPC READ FAULT] Null pointer"
++				" EA=0x{:08X}"
++				" IP=0x{:08X}",
++				address,
++				hCPU->instructionPointer);
++
++			PPCState_t_dataAccessFault(hCPU, address);
++			return 0;
++		}
++
++		uint32 v;
++		std::memcpy(&v, ptr, sizeof(uint32));
++
+ 		return CPU_swapEndianU32(v);
+ 	}
+ 
