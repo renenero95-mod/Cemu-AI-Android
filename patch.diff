@@ -1,109 +1,84 @@
-diff --git a/src/Cafe/OS/libs/coreinit/coreinit_MEM.cpp b/src/Cafe/OS/libs/coreinit/coreinit_MEM.cpp
-index 83658f3c..187b5cde 100644
---- a/src/Cafe/OS/libs/coreinit/coreinit_MEM.cpp
-+++ b/src/Cafe/OS/libs/coreinit/coreinit_MEM.cpp
-@@ -465,6 +465,8 @@ namespace coreinit
+diff --git a/src/Cafe/HW/Espresso/Interpreter/PPCInterpreterImpl.cpp b/src/Cafe/HW/Espresso/Interpreter/PPCInterpreterImpl.cpp
+index 547472ab..3dc4f14b 100644
+--- a/src/Cafe/HW/Espresso/Interpreter/PPCInterpreterImpl.cpp
++++ b/src/Cafe/HW/Espresso/Interpreter/PPCInterpreterImpl.cpp
+@@ -65,11 +65,75 @@ public:
  	{
- 		void* mem = MEMAllocFromExpHeapEx(gDefaultHeap, size, 0x40);
- 		cemuLog_logDebug(LogType::CoreinitMem, "MEMAllocFromDefaultHeap(0x{:08x}) Result: 0x{:08x}", size, memory_getVirtualOffsetFromPointer(mem));
-+		if (!mem)
-+			cemuLog_log(LogType::Force, "MEM ALLOC FAILED: MEMAllocFromDefaultHeap(size=0x{:x}) -> NULL", size);
- 		return mem;
- 	}
- 
-@@ -479,6 +481,8 @@ namespace coreinit
+ 		uint64 v = *(uint64*)(memory_getPointerFromVirtualOffset(address));
+ 		return CPU_swapEndianU64(v);
+-	}
+-
+-	inline static uint32 ppcMem_readDataU32(PPCInterpreter_t* hCPU, uint32 address)
++		inline static uint32 ppcMem_readDataU32(PPCInterpreter_t* hCPU, uint32 address)
  	{
- 		void* mem = MEMAllocFromExpHeapEx(gDefaultHeap, size, alignment);
- 		cemuLog_logDebug(LogType::CoreinitMem, "MEMAllocFromDefaultHeap(0x{:08x},{}) Result: 0x{:08x}", size, alignment, memory_getVirtualOffsetFromPointer(mem));
-+		if (!mem)
-+			cemuLog_log(LogType::Force, "MEM ALLOC FAILED: MEMAllocFromDefaultHeapEx(size=0x{:x}, alignment={}) -> NULL", size, alignment);
- 		return mem;
- 	}
- 
-diff --git a/src/Cafe/OS/libs/coreinit/coreinit_MEM_ExpHeap.cpp b/src/Cafe/OS/libs/coreinit/coreinit_MEM_ExpHeap.cpp
-index 552a610f..65709039 100644
---- a/src/Cafe/OS/libs/coreinit/coreinit_MEM_ExpHeap.cpp
-+++ b/src/Cafe/OS/libs/coreinit/coreinit_MEM_ExpHeap.cpp
-@@ -475,6 +475,12 @@ void* MEMAllocFromExpHeapEx(MEMHeapHandle heap, uint32 size, sint32 alignment)
- 
- 	heap->ReleaseLock();
- 
-+	// CemuFixer diagnostics: every allocation (default heap included) ends up here
-+	if (!mem)
-+		cemuLog_log(LogType::Force, "MEM ALLOC FAILED (ExpHeap): heap=0x{:08x} size=0x{:x} alignment={} -> NULL", MEMPTR<void>((void*)heap).GetMPTR(), size, alignment);
-+	else if (size >= 0x400000)
-+		cemuLog_log(LogType::Force, "MEM big alloc (ExpHeap): heap=0x{:08x} size=0x{:x} alignment={} -> 0x{:08x}", MEMPTR<void>((void*)heap).GetMPTR(), size, alignment, MEMPTR<void>(mem).GetMPTR());
-+
- 	return mem;
- }
- 
-diff --git a/src/Cafe/Filesystem/fscDeviceWua.cpp b/src/Cafe/Filesystem/fscDeviceWua.cpp
-index f9014bdb..0eb0ce23 100644
---- a/src/Cafe/Filesystem/fscDeviceWua.cpp
-+++ b/src/Cafe/Filesystem/fscDeviceWua.cpp
-@@ -1,6 +1,32 @@
- #include "Cafe/Filesystem/fsc.h"
- #include <zarchive/zarchivereader.h>
- 
-+// ZArchiveReader reads through the (Android SAF backed) file stream and may return fewer bytes than requested.
-+// Keep reading from the advancing offset until the full range has been delivered, EOF is hit,
-+// or no progress is made. Returns the number of bytes actually read.
-+static uint32 safe_archive_read(ZArchiveReader* archive, ZArchiveNodeHandle node, uint32 offset, uint32 size, void* buffer)
-+{
-+	constexpr int MAX_CONSECUTIVE_EMPTY_READS = 3;
-+	uint8* bufPtr = static_cast<uint8*>(buffer);
-+	uint32 totalRead = 0;
-+	int emptyReads = 0;
-+	while (totalRead < size)
-+	{
-+		uint32 bytesRead = (uint32)archive->ReadFromFile(node, (uint64)offset + totalRead, (uint64)(size - totalRead), bufPtr + totalRead);
-+		if (bytesRead == 0)
+-		uint32 v = *(uint32*)(memory_getPointerFromVirtualOffset(address));
++		auto logReadFault = [&]()
 +		{
-+			if (++emptyReads >= MAX_CONSECUTIVE_EMPTY_READS)
-+				break;
-+			continue;
-+		}
-+		emptyReads = 0;
-+		totalRead += bytesRead;
-+	}
-+	if (totalRead < size)
-+		cemuLog_log(LogType::Force, "WUA: short read (requested 0x{:x}, got 0x{:x})", size, totalRead);
-+	return totalRead;
-+}
++			const uint32 ip = hCPU->instructionPointer;
++			const uint32 lr = hCPU->spr.LR;
 +
- class FSCDeviceWuaFileCtx : public FSCVirtualFile
- {
- 	friend class fscDeviceWUAC;
-@@ -54,9 +80,22 @@ public:
- 		if (m_fscType != FSC_TYPE_FILE)
- 			return 0;
- 		cemu_assert(size < (2ULL * 1024 * 1024 * 1024)); // single read operation larger than 2GiB not supported
--		uint32 bytesLeft = fscDeviceWuaFile_getFileSize() - m_seek;
-+		uint32 fileSize = fscDeviceWuaFile_getFileSize();
-+		if (m_seek >= fileSize)
++			if (memory_isValidRange(ip, sizeof(uint32)))
++			{
++				const uint32 instruction = memory_readCodeU32(hCPU, ip);
++				const uint32 primaryOpcode = instruction >> 26;
++
++				if (primaryOpcode == 32) // LWZ
++				{
++					const uint32 rt = (instruction >> 21) & 0x1F;
++					const uint32 ra = (instruction >> 16) & 0x1F;
++					const sint16 displacement = (sint16)(instruction & 0xFFFF);
++
++					cemuLog_log(LogType::Force,
++						"[PPC READ FAULT] LWZ"
++						" EA=0x{:08x}"
++						" IP=0x{:08x}"
++						" LR=0x{:08x}"
++						" instruction=0x{:08x}"
++						" RT=r{}"
++						" RA=r{}"
++						" displacement={}",
++						address, ip, lr, instruction,
++						rt, ra, displacement);
++				}
++				else
++				{
++					cemuLog_log(LogType::Force,
++						"[PPC READ FAULT] Non-LWZ"
++						" EA=0x{:08x}"
++						" IP=0x{:08x}"
++						" LR=0x{:08x}"
++						" instruction=0x{:08x}"
++						" opcode={}",
++						address, ip, lr, instruction, primaryOpcode);
++				}
++			}
++			else
++			{
++				cemuLog_log(LogType::Force,
++					"[PPC READ FAULT] EA=0x{:08x}"
++					" IP=0x{:08x} (instruction address invalid)"
++					" LR=0x{:08x}",
++					address, ip, lr);
++			}
++		};
++
++		if (!memory_isValidRange(address, sizeof(uint32)))
++		{
++			logReadFault();
++			PPCState_t_dataAccessFault(hCPU, address);
 +			return 0;
-+		uint32 bytesLeft = fileSize - m_seek;
- 		uint32 bytesToRead = (std::min)(bytesLeft, (uint32)size);
--		uint32 bytesSuccessfullyRead = (uint32)m_archive->ReadFromFile(m_nodeHandle, m_seek, bytesToRead, buffer);
-+		uint32 bytesSuccessfullyRead = safe_archive_read(m_archive, m_nodeHandle, m_seek, bytesToRead, buffer);
-+		if (bytesSuccessfullyRead >= 4096)
-+		{
-+			// CemuFixer diagnostics: detect "successful" reads that deliver zero-filled data
-+			const uint8* data = static_cast<const uint8*>(buffer);
-+			uint32 zeroBytes = 0;
-+			for (uint32 i = 0; i < bytesSuccessfullyRead; i++)
-+				zeroBytes += (data[i] == 0);
-+			cemuLog_log(LogType::Force, "WUA read: seek=0x{:x} size=0x{:x} got=0x{:x} zeroBytes=0x{:x} first8={:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}",
-+				m_seek, (uint32)size, bytesSuccessfullyRead, zeroBytes, data[0], data[1], data[2], data[3], data[4], data[5], data[6], data[7]);
 +		}
- 		m_seek += bytesSuccessfullyRead;
- 		return bytesSuccessfullyRead;
++
++		void* ptr = memory_getPointerFromVirtualOffset(address);
++		if (!ptr)
++		{
++			logReadFault();
++			PPCState_t_dataAccessFault(hCPU, address);
++			return 0;
++		}
++
++		uint32 v;
++		std::memcpy(&v, ptr, sizeof(uint32));
+ 		return CPU_swapEndianU32(v);
  	}
-@@ -169,5 +208,6 @@ public:
  
- bool FSCDeviceWUA_Mount(std::string_view mountPath, std::string_view destinationBaseDir, ZArchiveReader* archive, sint32 priority)
- {
-+	cemuLog_log(LogType::Force, "CemuFixer build marker: fscDeviceWua.cpp compiled {} {} (safe_archive_read, WUA read diagnostics)", __DATE__, __TIME__);
- 	return fsc_mount(mountPath, destinationBaseDir, &fscDeviceWUAC::instance(), archive, priority) == FSC_STATUS_OK;
- }
-\ No newline at end of file
