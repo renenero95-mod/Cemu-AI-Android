@@ -1,28 +1,36 @@
-diff --git a/Cemu/src/Cafe/HW/Espresso/Interpreter/PPCInterpreterImpl.cpp b/Cemu/src/Cafe/HW/Espresso/Interpreter/PPCInterpreterImpl.cpp.temp
-index 3e208353..f0861ce7 100644
---- a/Cemu/src/Cafe/HW/Espresso/Interpreter/PPCInterpreterImpl.cpp
-+++ b/Cemu/src/Cafe/HW/Espresso/Interpreter/PPCInterpreterImpl.cpp.temp
-@@ -67,16 +67,21 @@ public:
- 		return CPU_swapEndianU64(v);
- 	inline static uint32 ppcMem_readDataU32(PPCInterpreter_t* hCPU, uint32 address)
- {
-+    if (!memory_isValidRange(address, sizeof(uint32)))
-+    {
-+        PPCState_t_dataAccessFault(hCPU, address);
-+        return 0;
-+    }
-+
-     void* ptr = memory_getPointerFromVirtualOffset(address);
-     if (!ptr)
-     {
-         PPCState_t_dataAccessFault(hCPU, address);
-         return 0;
-     }
--    
-+
-     uint32 v;
-     std::memcpy(&v, ptr, sizeof(uint32));
--    
-     return CPU_swapEndianU32(v);
- }
+diff --git a/coreinit_original.cpp b/Cemu/src/Cafe/OS/libs/coreinit/coreinit_FS.cpp
+index 12ddb8df..cf730090 100644
+--- a/coreinit_original.cpp
++++ b/Cemu/src/Cafe/OS/libs/coreinit/coreinit_FS.cpp
+@@ -14,6 +14,31 @@
+ #include "Cafe/CafeSystem.h"
+ #include "Cafe/TitleList/TitleInfo.h"
  
++#include <unistd.h>
++#include <errno.h>
++#include <stdint.h>
++#include <sys/types.h>
++
++static ssize_t safe_saf_read(int fd, void* buffer, size_t count, int64_t offset) {
++    size_t totalRead = 0;
++    char* bufPtr = static_cast<char*>(buffer);
++    while (totalRead < count) {
++        ssize_t bytesRead = 0;
++        if (offset != -1) {
++            bytesRead = safe_saf_read(fd, bufPtr + totalRead, count - totalRead, offset + totalRead);
++        } else {
++            bytesRead = safe_saf_read(fd, bufPtr + totalRead, count - totalRead);
++        }
++        if (bytesRead < 0) {
++            if (errno == EINTR) continue;
++            return -1;
++        }
++        if (bytesRead == 0) break;
++        totalRead += bytesRead;
++    }
++    return totalRead;
++}
++
+ #define FS_CB_PLACEHOLDER_FINISHCMD (MPTR)(0xF122330E)
+ 
+ // return false if src+'\0' does not fit into dst
