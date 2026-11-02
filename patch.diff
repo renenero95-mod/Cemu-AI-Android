@@ -1,155 +1,250 @@
+diff --git a/src/Cafe/HW/Espresso/Recompiler/PPCRecompilerImlGen.cpp b/src/Cafe/HW/Espresso/Recompiler/PPCRecompilerImlGen.cpp
+index e76a53f..9b7e273 100644
+--- a/src/Cafe/HW/Espresso/Recompiler/PPCRecompilerImlGen.cpp
++++ b/src/Cafe/HW/Espresso/Recompiler/PPCRecompilerImlGen.cpp
+@@ -2973,7 +2973,34 @@ bool PPCIMLGen_FillBasicBlock(ppcImlGenContext_t& ppcImlGenContext, PPCBasicBloc
+ 
+ 		if (PPCRecompiler_decodePPCInstruction(&ppcImlGenContext))
+ 		{
+-			cemuLog_logDebug(LogType::Force, "PPCRecompiler: Unsupported instruction at 0x{:08x}", addressOfCurrentInstruction);
++			// decodePPCInstruction has already advanced the pointer.
++			const uint32 opcode = CPU_swapEndianU32(
++				*(ppcImlGenContext.currentInstruction - 1)
++			);
++
++			const uint32 primary = (opcode >> 26) & 0x3F;
++			const uint32 rt = (opcode >> 21) & 0x1F;
++			const uint32 ra = (opcode >> 16) & 0x1F;
++			const uint32 rb = (opcode >> 11) & 0x1F;
++			const uint32 xo = (opcode >> 1) & 0x3FF;
++			const uint32 rc = opcode & 1;
++
++			cemuLog_log(
++				LogType::Force,
++				"[PPCREC UNSUPPORTED] "
++				"PC=0x{:08X} OPCODE=0x{:08X} "
++				"PRIMARY={} XO={} "
++				"RT={} RA={} RB={} Rc={}",
++				addressOfCurrentInstruction,
++				opcode,
++				primary,
++				xo,
++				rt,
++				ra,
++				rb,
++				rc
++			);
++
+ 			ppcImlGenContext.currentOutputSegment = nullptr;
+ 			return false;
+ 		}
 diff --git a/src/Cafe/OS/libs/snd_user/snd_user.cpp b/src/Cafe/OS/libs/snd_user/snd_user.cpp
-index 58e8f4b5..accf04d4 100644
+index 58e8f4b..1f239e6 100644
 --- a/src/Cafe/OS/libs/snd_user/snd_user.cpp
 +++ b/src/Cafe/OS/libs/snd_user/snd_user.cpp
-@@ -303,50 +303,66 @@ namespace snd_user
+@@ -301,52 +301,119 @@ namespace snd_user
+ 			_MIXChannelResetRmt(channel, i);
+ 	}
  
- 	void _MIXControl_SetDevicePan(MixControl* control, int device_type, sint16 channels[])
+-	void _MIXControl_SetDevicePan(MixControl* control, int device_type, sint16 channels[])
++	void _MIXControl_SetDevicePan(
++		MixControl* control,
++		int device_type,
++		sint16 channels[])
  	{
 -		const auto pandiff = 0x7F - control->pan;
 -		const auto spandiff = 0x7F - control->span;
-+		if (control == nullptr || channels == nullptr)
++		if (!control || !channels)
 +		{
-+			cemuLog_log(LogType::Force, "[MIX PAN] null control/channels (device={})", device_type);
++			cemuLog_log(
++				LogType::Force,
++				"[MIX PAN] Invalid control/channels pointer"
++			);
 +			return;
 +		}
 +
-+		// The pan lookup tables contain exactly 128 entries (0..0x7f).
-+		// MixControl stores signed 16-bit values; using them directly as
-+		// indexes lets negative guest values become huge host indexes.
-+		auto normalizePan = [](sint16 value, const char* field) -> uint32
++		if (device_type != AX_DEV_TV &&
++			device_type != AX_DEV_DRC)
 +		{
-+			if (value < 0 || value > 0x7F)
-+			{
-+				cemuLog_log(LogType::Force, "[MIX PAN] invalid {}={} (expected 0..127); using center pan", field, value);
-+				return 0x40;
-+			}
-+			return static_cast<uint32>(value);
-+		};
++			cemuLog_log(
++				LogType::Force,
++				"[MIX PAN] Invalid device type: {}",
++				device_type
++			);
++			return;
++		}
 +
-+		const uint32 pan = normalizePan(control->pan, "pan");
-+		const uint32 span = normalizePan(control->span, "span");
++		// PowerPC values are signed 16-bit.
++		// Clamp them before using them as array indexes.
++		const uint32 pan =
++			control->pan < 0 ? 0 :
++			control->pan > 0x7F ? 0x7F :
++			static_cast<uint32>(control->pan);
++
++		const uint32 span =
++			control->span < 0 ? 0 :
++			control->span > 0x7F ? 0x7F :
++			static_cast<uint32>(control->span);
++
 +		const uint32 pandiff = 0x7F - pan;
 +		const uint32 spandiff = 0x7F - span;
  
  		if (device_type == AX_DEV_TV)
  		{
- 			const uint32 sound_mode = g_snd_user_data.device_info.tv_sound_mode;
+-			const uint32 sound_mode = g_snd_user_data.device_info.tv_sound_mode;
++			memset(
++				channels,
++				0,
++				sizeof(sint16) * AX_TV_CHANNEL_COUNT
++			);
++
++			const uint32 sound_mode =
++				g_snd_user_data.device_info.tv_sound_mode;
++
  			if (sound_mode == 3)
  			{
 -				channels[0] = g_snd_user_data.pan_values_low[control->pan];
-+				channels[0] = g_snd_user_data.pan_values_low[pan];
- 				channels[1] = g_snd_user_data.pan_values_low[pandiff];
- 				channels[2] = g_snd_user_data.pan_values_high[pandiff];
+-				channels[1] = g_snd_user_data.pan_values_low[pandiff];
+-				channels[2] = g_snd_user_data.pan_values_high[pandiff];
 -				channels[3] = g_snd_user_data.pan_values_high[control->pan];
-+				channels[3] = g_snd_user_data.pan_values_high[pan];
- 				channels[4] = g_snd_user_data.pan_values_high[spandiff];
+-				channels[4] = g_snd_user_data.pan_values_high[spandiff];
 -				channels[5] = g_snd_user_data.pan_values_high[control->span];
-+				channels[5] = g_snd_user_data.pan_values_high[span];
++				channels[0] =
++					g_snd_user_data.pan_values_low[pan];
++
++				channels[1] =
++					g_snd_user_data.pan_values_low[pandiff];
++
++				channels[2] =
++					g_snd_user_data.pan_values_high[pandiff];
++
++				channels[3] =
++					g_snd_user_data.pan_values_high[pan];
++
++				channels[4] =
++					g_snd_user_data.pan_values_high[spandiff];
++
++				channels[5] =
++					g_snd_user_data.pan_values_high[span];
  			}
  			else if (sound_mode != 4)
  			{
 -				channels[0] = g_snd_user_data.pan_values[control->pan];
-+				channels[0] = g_snd_user_data.pan_values[pan];
- 				channels[1] = g_snd_user_data.pan_values[pandiff];
+-				channels[1] = g_snd_user_data.pan_values[pandiff];
++				channels[0] =
++					g_snd_user_data.pan_values[pan];
++
++				channels[1] =
++					g_snd_user_data.pan_values[pandiff];
++
  				channels[2] = 0;
  				channels[3] = 0;
- 				channels[4] = g_snd_user_data.pan_values[spandiff];
+-				channels[4] = g_snd_user_data.pan_values[spandiff];
 -				channels[5] = g_snd_user_data.pan_values[control->span];
-+				channels[5] = g_snd_user_data.pan_values[span];
++
++				channels[4] =
++					g_snd_user_data.pan_values[spandiff];
++
++				channels[5] =
++					g_snd_user_data.pan_values[span];
  			}
  			else
  			{
 -				uint32 pan = 0x7F;
 -				if (((uint32)control->pan >> 1) < 0x7F)
 -					pan = (uint32)control->pan >> 1;
--
++				uint32 p = pan >> 1;
+ 
 -				channels[0] = g_snd_user_data.pan_values[pan] + g_snd_user_data.pan_values[spandiff];
--
++				if (p >= 0x7F)
++					p = 0x7F;
+ 
 -				uint32 span = 0x7F;
 -				if (((uint32)pandiff >> 1) < 0x7E)
 -					span = (uint32)pandiff >> 1;
--
++				channels[0] =
++					g_snd_user_data.pan_values[p] +
++					g_snd_user_data.pan_values[spandiff];
+ 
 -				channels[1] = g_snd_user_data.pan_values[span] + g_snd_user_data.pan_values[spandiff];
--
++				uint32 s = pandiff >> 1;
+ 
 -				// TODO
-+				const uint32 panHalf = pan >> 1;
-+				const uint32 panIndex = panHalf < 0x7F ? panHalf : 0x7F;
-+				channels[0] = g_snd_user_data.pan_values[panIndex] + g_snd_user_data.pan_values[spandiff];
++				if (s >= 0x7E)
++					s = 0x7F;
 +
-+				const uint32 spanHalf = pandiff >> 1;
-+				const uint32 spanIndex = spanHalf < 0x7E ? spanHalf : 0x7F;
-+				channels[1] = g_snd_user_data.pan_values[spanIndex] + g_snd_user_data.pan_values[spandiff];
-+				// Remaining sound-mode-4 channel mapping is intentionally unchanged (TODO in upstream).
++				channels[1] =
++					g_snd_user_data.pan_values[s] +
++					g_snd_user_data.pan_values[spandiff];
  			}
  		}
  		else if (device_type == AX_DEV_DRC)
  		{
 -			// TODO
-+			// TODO: DRC channel mapping is not implemented in the supplied source.
++			// Preserve existing DRC implementation status.
++			// DRC channel mapping still needs implementation.
  		}
  	}
  
-@@ -762,13 +778,34 @@ namespace snd_user
- 	{
- 		cemuLog_log(LogType::SoundAPI, "MIXInitDeviceControl(0x{:0x}, 0x{:x}, 0x{:x}, 0x{:x}, 0x{:x} )", MEMPTR(voice).GetMPTR(), device_type, index, MEMPTR(control).GetMPTR(), mode);
+@@ -766,10 +833,59 @@ namespace snd_user
+ 		cemu_assert_debug(voice);
+ 		cemu_assert_debug(control);
  
--		cemu_assert_debug(device_type < AX_DEV_COUNT);
--		cemu_assert_debug(voice);
--		cemu_assert_debug(control);
--
 -		AXVoiceBegin(voice);
-+		// Validate all guest-controlled selectors before AXVoiceBegin or array access.
-+		if (voice == nullptr || control == nullptr)
++		if (!voice || !control)
 +		{
-+			cemuLog_log(LogType::Force, "[MIX INIT] null voice/control (device={}, index={})", device_type, index);
++			cemuLog_log(
++				LogType::Force,
++				"[MIX INIT] Null voice/control pointer"
++			);
 +			return;
 +		}
-+		if (!g_snd_user_data.initialized || g_snd_user_data.max_voices <= 0 || g_snd_user_data.max_voices > AX_MAX_VOICES)
++
++		if (!g_snd_user_data.initialized ||
++			g_snd_user_data.max_voices <= 0)
 +		{
-+			cemuLog_log(LogType::Force, "[MIX INIT] mixer not initialized or invalid voice count ({})", g_snd_user_data.max_voices);
++			cemuLog_log(
++				LogType::Force,
++				"[MIX INIT] Sound system not initialized"
++			);
 +			return;
 +		}
-+		if (device_type >= AX_DEV_COUNT ||
-+			(device_type == AX_DEV_TV && index != 0) ||
++
++		if (device_type >= AX_DEV_COUNT)
++			return;
++
++		if ((device_type == AX_DEV_TV && index != 0) ||
 +			(device_type == AX_DEV_DRC && index >= AX_MAX_NUM_DRC) ||
 +			(device_type == AX_DEV_RMT && index >= AX_MAX_NUM_RMT))
 +		{
-+			cemuLog_log(LogType::Force, "[MIX INIT] invalid device/index ({}, {})", device_type, index);
++			cemuLog_log(
++				LogType::Force,
++				"[MIX INIT] Invalid device index: {} / {}",
++				device_type,
++				index
++			);
 +			return;
 +		}
  
  		const uint32 voice_index = voice->index;
-+		if (voice_index >= static_cast<uint32>(g_snd_user_data.max_voices))
+-		auto& channel = g_snd_user_data.mix_channel[voice_index];
++
++		if (voice_index >=
++			static_cast<uint32>(g_snd_user_data.max_voices))
 +		{
-+			cemuLog_log(LogType::Force, "[MIX INIT] voice index {} outside mixer capacity {}", voice_index, g_snd_user_data.max_voices);
++			cemuLog_log(
++				LogType::Force,
++				"[MIX INIT] Invalid voice index: {} max={}",
++				voice_index,
++				g_snd_user_data.max_voices
++			);
 +			return;
 +		}
 +
 +		AXVoiceBegin(voice);
- 		auto& channel = g_snd_user_data.mix_channel[voice_index];
++
++		auto& channel =
++			g_snd_user_data.mix_channel[voice_index];
  
  		channel.voice = voice;
-diff --git a/src/Cafe/HW/Espresso/Recompiler/PPCRecompilerImlGen.cpp b/src/Cafe/HW/Espresso/Recompiler/PPCRecompilerImlGen.cpp
-index e76a53fa..9225572e 100644
---- a/src/Cafe/HW/Espresso/Recompiler/PPCRecompilerImlGen.cpp
-+++ b/src/Cafe/HW/Espresso/Recompiler/PPCRecompilerImlGen.cpp
-@@ -2973,7 +2973,17 @@ bool PPCIMLGen_FillBasicBlock(ppcImlGenContext_t& ppcImlGenContext, PPCBasicBloc
  
- 		if (PPCRecompiler_decodePPCInstruction(&ppcImlGenContext))
- 		{
--			cemuLog_logDebug(LogType::Force, "PPCRecompiler: Unsupported instruction at 0x{:08x}", addressOfCurrentInstruction);
-+			// decodePPCInstruction consumes exactly one 32-bit PPC word even
-+			// when it reports an unsupported encoding. Read that word back via
-+			// the existing helper rather than dereferencing guest memory again.
-+			const uint32 opcode = PPCRecompiler_getPreviousInstruction(&ppcImlGenContext);
-+			const uint32 primaryOpcode = opcode >> 26;
-+			const uint32 extendedOpcode = (opcode >> 1) & 0x3FF;
-+			cemuLog_log(LogType::Force,
-+				"[PPCREC UNSUPPORTED] PC=0x{:08x} opcode=0x{:08x} primary={} xo={} rt={} ra={} rb={} rc={}",
-+				addressOfCurrentInstruction, opcode, primaryOpcode,
-+				extendedOpcode, (opcode >> 21) & 0x1F,
-+				(opcode >> 16) & 0x1F, (opcode >> 11) & 0x1F, opcode & 1);
- 			ppcImlGenContext.currentOutputSegment = nullptr;
- 			return false;
- 		}
