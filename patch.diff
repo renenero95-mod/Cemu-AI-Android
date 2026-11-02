@@ -1,7 +1,7 @@
-diff --git a/orig_log.cpp b/Cemu/src/Cemu/Logging/CemuLogging.cpp
+diff --git a/src/Cemu/Logging/CemuLogging.cpp b/src/Cemu/Logging/CemuLogging.cpp
 index f2d9ac05..04ec9758 100644
---- a/orig_log.cpp
-+++ b/Cemu/src/Cemu/Logging/CemuLogging.cpp
+--- a/src/Cemu/Logging/CemuLogging.cpp
++++ b/src/Cemu/Logging/CemuLogging.cpp
 @@ -11,7 +11,10 @@
  
  #include <fmt/printf.h>
