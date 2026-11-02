@@ -1,0 +1,33 @@
+--- Cemu/src/Cafe/OS/libs/coreinit/coreinit_FS.cpp
++++ Cemu/src/Cafe/OS/libs/coreinit/coreinit_FS.cpp
+# PROPOSTA AI:
+#include <unistd.h>
+#include <errno.h>
+#include <stdint.h>
+#include <sys/types.h>
+
+static ssize_t safe_saf_read(int fd, void* buffer, size_t count, int64_t offset) {
+    size_t totalRead = 0;
+    char* bufPtr = static_cast<char*>(buffer);
+
+    while (totalRead < count) {
+        ssize_t bytesRead = 0;
+        if (offset != -1) {
+            bytesRead = pread(fd, bufPtr + totalRead, count - totalRead, offset + totalRead);
+        } else {
+            bytesRead = read(fd, bufPtr + totalRead, count - totalRead);
+        }
+
+        if (bytesRead < 0) {
+            if (errno == EINTR) continue;
+            return -1;
+        }
+        
+        if (bytesRead == 0) {
+            break;
+        }
+
+        totalRead += bytesRead;
+    }
+    return totalRead;
+}
