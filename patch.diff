@@ -1,73 +1,35 @@
-diff --git a/src/Cafe/Filesystem/fscDeviceWua.cpp b/src/Cafe/Filesystem/fscDeviceWua.cpp
-index f9014bdb..394cdad1 100644
---- a/src/Cafe/Filesystem/fscDeviceWua.cpp
-+++ b/src/Cafe/Filesystem/fscDeviceWua.cpp
-@@ -1,6 +1,34 @@
- #include "Cafe/Filesystem/fsc.h"
- #include <zarchive/zarchivereader.h>
- 
-+// ZArchiveReader reads through the (Android SAF backed) file stream and may return fewer bytes than requested.
-+// Keep reading from the advancing offset until the full range has been delivered, EOF is hit,
-+// or no progress is made. Returns the number of bytes actually read.
-+static uint32 safe_archive_read(ZArchiveReader* archive, ZArchiveNodeHandle node, uint32 offset, uint32 size, void* buffer)
-+{
-+	constexpr int MAX_CONSECUTIVE_EMPTY_READS = 3;
-+	uint8* bufPtr = static_cast<uint8*>(buffer);
-+	uint32 totalRead = 0;
-+	int emptyReads = 0;
-+	while (totalRead < size)
-+	{
-+		uint32 bytesRead = (uint32)archive->ReadFromFile(node, (uint64)offset + totalRead, (uint64)(size - totalRead), bufPtr + totalRead);
-+		if (bytesRead == 0)
-+		{
+--- a/fscDeviceWua.cpp
++++ b/fscDeviceWua.cpp
+@@ -15,6 +15,8 @@
+ 		uint32 bytesRead = (uint32)archive->ReadFromFile(node, (uint64)offset + totalRead, (uint64)(size - totalRead), bufPtr + totalRead);
+ 		if (bytesRead == 0)
+ 		{
 +			cemuLog_log(LogType::Force, "[WUA DIAG ZERO-READ] offset=0x{:x} requested=0x{:x} totalRead=0x{:x} remaining=0x{:x}",
 +				offset, size, totalRead, size - totalRead);
-+			if (++emptyReads >= MAX_CONSECUTIVE_EMPTY_READS)
-+				break;
-+			continue;
-+		}
-+		emptyReads = 0;
-+		totalRead += bytesRead;
-+	}
-+	if (totalRead < size)
-+		cemuLog_log(LogType::Force, "WUA: short read (requested 0x{:x}, got 0x{:x})", size, totalRead);
-+	return totalRead;
-+}
-+
- class FSCDeviceWuaFileCtx : public FSCVirtualFile
- {
- 	friend class fscDeviceWUAC;
-@@ -54,10 +82,36 @@ public:
- 		if (m_fscType != FSC_TYPE_FILE)
+ 			if (++emptyReads >= MAX_CONSECUTIVE_EMPTY_READS)
+ 				break;
+ 			continue;
+@@ -81,8 +83,17 @@
  			return 0;
  		cemu_assert(size < (2ULL * 1024 * 1024 * 1024)); // single read operation larger than 2GiB not supported
--		uint32 bytesLeft = fscDeviceWuaFile_getFileSize() - m_seek;
-+		uint32 fileSize = fscDeviceWuaFile_getFileSize();
+ 		uint32 fileSize = fscDeviceWuaFile_getFileSize();
 +		const uint32 seekBefore = m_seek;
 +		cemuLog_log(LogType::Force,
 +			"[WUA DIAG READ-BEGIN] ctx=0x{:x} archive=0x{:x} buffer=0x{:x} seek=0x{:x} request=0x{:x} fileSize=0x{:x}",
 +			(uint64)(uintptr_t)this, (uint64)(uintptr_t)m_archive, (uint64)(uintptr_t)buffer,
 +			seekBefore, size, fileSize);
-+		if (m_seek >= fileSize)
+ 		if (m_seek >= fileSize)
 +		{
 +			cemuLog_log(LogType::Force, "[WUA DIAG READ-EOF] ctx=0x{:x} seek=0x{:x} fileSize=0x{:x}",
 +				(uint64)(uintptr_t)this, m_seek, fileSize);
-+			return 0;
+ 			return 0;
 +		}
-+		uint32 bytesLeft = fileSize - m_seek;
+ 		uint32 bytesLeft = fileSize - m_seek;
  		uint32 bytesToRead = (std::min)(bytesLeft, (uint32)size);
--		uint32 bytesSuccessfullyRead = (uint32)m_archive->ReadFromFile(m_nodeHandle, m_seek, bytesToRead, buffer);
-+		uint32 bytesSuccessfullyRead = safe_archive_read(m_archive, m_nodeHandle, m_seek, bytesToRead, buffer);
-+		if (bytesSuccessfullyRead >= 4096)
-+		{
-+			// CemuFixer diagnostics: detect "successful" reads that deliver zero-filled data
-+			const uint8* data = static_cast<const uint8*>(buffer);
-+			uint32 zeroBytes = 0;
-+			for (uint32 i = 0; i < bytesSuccessfullyRead; i++)
-+				zeroBytes += (data[i] == 0);
-+			cemuLog_log(LogType::Force, "WUA read: seek=0x{:x} size=0x{:x} got=0x{:x} zeroBytes=0x{:x} first8={:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}",
-+				m_seek, (uint32)size, bytesSuccessfullyRead, zeroBytes, data[0], data[1], data[2], data[3], data[4], data[5], data[6], data[7]);
-+		}
+ 		uint32 bytesSuccessfullyRead = safe_archive_read(m_archive, m_nodeHandle, m_seek, bytesToRead, buffer);
+@@ -97,6 +108,10 @@
+ 				m_seek, (uint32)size, bytesSuccessfullyRead, zeroBytes, data[0], data[1], data[2], data[3], data[4], data[5], data[6], data[7]);
+ 		}
  		m_seek += bytesSuccessfullyRead;
 +		cemuLog_log(LogType::Force,
 +			"[WUA DIAG READ-END] ctx=0x{:x} seekBefore=0x{:x} requested=0x{:x} bounded=0x{:x} got=0x{:x} seekAfter=0x{:x} short={}",
@@ -76,7 +38,7 @@ index f9014bdb..394cdad1 100644
  		return bytesSuccessfullyRead;
  	}
  
-@@ -65,15 +119,23 @@ public:
+@@ -104,15 +119,23 @@
  	{
  		if (m_fscType != FSC_TYPE_FILE)
  			return;
@@ -101,19 +63,9 @@ index f9014bdb..394cdad1 100644
  	}
  
  	bool fscDirNext(FSCDirEntry* dirEntry) override
-@@ -169,5 +231,6 @@ public:
- 
- bool FSCDeviceWUA_Mount(std::string_view mountPath, std::string_view destinationBaseDir, ZArchiveReader* archive, sint32 priority)
- {
-+	cemuLog_log(LogType::Force, "CemuFixer build marker: fscDeviceWua.cpp compiled {} {} (safe_archive_read, WUA read diagnostics)", __DATE__, __TIME__);
- 	return fsc_mount(mountPath, destinationBaseDir, &fscDeviceWUAC::instance(), archive, priority) == FSC_STATUS_OK;
- }
-\ No newline at end of file
-diff --git a/src/Cafe/OS/libs/coreinit/coreinit_MEM_ExpHeap.cpp b/src/Cafe/OS/libs/coreinit/coreinit_MEM_ExpHeap.cpp
-index 552a610f..ef2b46df 100644
---- a/src/Cafe/OS/libs/coreinit/coreinit_MEM_ExpHeap.cpp
-+++ b/src/Cafe/OS/libs/coreinit/coreinit_MEM_ExpHeap.cpp
-@@ -460,7 +460,12 @@ void* MEMAllocFromExpHeapEx(MEMHeapHandle heap, uint32 size, sint32 alignment)
+--- a/coreinit_MEM_ExpHeap.cpp
++++ b/coreinit_MEM_ExpHeap.cpp
+@@ -460,7 +460,12 @@
  
  	size = (size + MIN_ALIGNMENT_MINUS_ONE) & ~MIN_ALIGNMENT_MINUS_ONE;
  
@@ -126,7 +78,7 @@ index 552a610f..ef2b46df 100644
  
  	void* mem;
  	if (alignment < 0)
-@@ -473,8 +478,17 @@ void* MEMAllocFromExpHeapEx(MEMHeapHandle heap, uint32 size, sint32 alignment)
+@@ -473,6 +478,9 @@
  		mem = _MEMExpHeap_AllocFromHead(heap, size, alignment);
  	}
  
@@ -135,16 +87,8 @@ index 552a610f..ef2b46df 100644
 +		heapMPTR, size, resultMPTR);
  	heap->ReleaseLock();
  
-+	// CemuFixer diagnostics: every allocation (default heap included) ends up here
-+	if (!mem)
-+		cemuLog_log(LogType::Force, "MEM ALLOC FAILED (ExpHeap): heap=0x{:08x} size=0x{:x} alignment={} -> NULL", MEMPTR<void>((void*)heap).GetMPTR(), size, alignment);
-+	else if (size >= 0x400000)
-+		cemuLog_log(LogType::Force, "MEM big alloc (ExpHeap): heap=0x{:08x} size=0x{:x} alignment={} -> 0x{:08x}", MEMPTR<void>((void*)heap).GetMPTR(), size, alignment, MEMPTR<void>(mem).GetMPTR());
-+
- 	return mem;
- }
- 
-@@ -483,7 +497,13 @@ void MEMFreeToExpHeap(MEMHeapHandle heap, void* mem)
+ 	// CemuFixer diagnostics: every allocation (default heap included) ends up here
+@@ -489,7 +497,13 @@
  	IsValidExpHeapHandle_(heap);
  	if (mem)
  	{
@@ -158,7 +102,7 @@ index 552a610f..ef2b46df 100644
  
  		cemu_assert_debug(_MEMExpHeap_IsValidUsedMBlock(mem, heap) == true);
  		cemu_assert_debug((uintptr_t)heap->heapStart.GetPtr() <= (uintptr_t)mem && (uintptr_t)mem < (uintptr_t)heap->heapEnd.GetPtr());
-@@ -497,6 +517,8 @@ void MEMFreeToExpHeap(MEMHeapHandle heap, void* mem)
+@@ -503,6 +517,8 @@
  		_MEMExpHeap_RemoveMBlock(&expHeap->expHeapHead.chainUsedBlocks, mBlock);
  		_MEMExpHeap_RecycleRegion(&expHeap->expHeapHead.chainFreeBlocks, &region);
  
@@ -167,25 +111,3 @@ index 552a610f..ef2b46df 100644
  		heap->ReleaseLock();
  	}
  }
-diff --git a/src/Cafe/OS/libs/coreinit/coreinit_MEM.cpp b/src/Cafe/OS/libs/coreinit/coreinit_MEM.cpp
-index 83658f3c..187b5cde 100644
---- a/src/Cafe/OS/libs/coreinit/coreinit_MEM.cpp
-+++ b/src/Cafe/OS/libs/coreinit/coreinit_MEM.cpp
-@@ -465,6 +465,8 @@ namespace coreinit
- 	{
- 		void* mem = MEMAllocFromExpHeapEx(gDefaultHeap, size, 0x40);
- 		cemuLog_logDebug(LogType::CoreinitMem, "MEMAllocFromDefaultHeap(0x{:08x}) Result: 0x{:08x}", size, memory_getVirtualOffsetFromPointer(mem));
-+		if (!mem)
-+			cemuLog_log(LogType::Force, "MEM ALLOC FAILED: MEMAllocFromDefaultHeap(size=0x{:x}) -> NULL", size);
- 		return mem;
- 	}
- 
-@@ -479,6 +481,8 @@ namespace coreinit
- 	{
- 		void* mem = MEMAllocFromExpHeapEx(gDefaultHeap, size, alignment);
- 		cemuLog_logDebug(LogType::CoreinitMem, "MEMAllocFromDefaultHeap(0x{:08x},{}) Result: 0x{:08x}", size, alignment, memory_getVirtualOffsetFromPointer(mem));
-+		if (!mem)
-+			cemuLog_log(LogType::Force, "MEM ALLOC FAILED: MEMAllocFromDefaultHeapEx(size=0x{:x}, alignment={}) -> NULL", size, alignment);
- 		return mem;
- 	}
- 
