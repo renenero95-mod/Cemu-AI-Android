@@ -1,44 +1,43 @@
 diff --git a/src/Cafe/HW/Espresso/Interpreter/PPCInterpreterImpl.cpp b/src/Cafe/HW/Espresso/Interpreter/PPCInterpreterImpl.cpp
 old mode 100644
 new mode 100755
-index 547472ab..58ea3baa
+index 547472ab..06c3663d
 --- a/src/Cafe/HW/Espresso/Interpreter/PPCInterpreterImpl.cpp
 +++ b/src/Cafe/HW/Espresso/Interpreter/PPCInterpreterImpl.cpp
-@@ -69,7 +69,39 @@ public:
+@@ -69,7 +69,38 @@ public:
  
  	inline static uint32 ppcMem_readDataU32(PPCInterpreter_t* hCPU, uint32 address)
  	{
 -		uint32 v = *(uint32*)(memory_getPointerFromVirtualOffset(address));
 +		void* ptr = memory_getPointerFromVirtualOffset(address);
++		const uint32 ip = hCPU->instructionPointer;
 +
-+		// Diagnostic only: preserve the original memory-access behavior.
-+		// Log before the original dereference if address translation returns null.
-+		if (ptr == nullptr)
++		// The previous crash repeatedly occurred at this Watch Dogs instruction.
++		// Log its effective address and translated host pointer before dereferencing.
++		if (ip == 0x04e49e34 || ptr == nullptr)
 +		{
-+			const uint32 ip = hCPU->instructionPointer;
-+			const uint32 instruction = memory_readCodeU32(hCPU, ip);
++			uint32 instruction = 0;
++			if (ip != 0)
++				instruction = memory_readCodeU32(hCPU, ip);
++
 +			const uint32 opcode = instruction >> 26;
++			const uint32 rt = (instruction >> 21) & 0x1F;
++			const uint32 ra = (instruction >> 16) & 0x1F;
++			const sint16 displacement = (sint16)(instruction & 0xFFFF);
 +
-+			if (opcode == 32) // PPC LWZ
-+			{
-+				const uint32 rt = (instruction >> 21) & 0x1F;
-+				const uint32 ra = (instruction >> 16) & 0x1F;
-+				const sint16 displacement = (sint16)(instruction & 0xFFFF);
-+
-+				cemuLog_log(LogType::Force,
-+					"[PPC READ NULL] EA=0x{:08x} IP=0x{:08x} LR=0x{:08x} "
-+					"instruction=0x{:08x} LWZ RT=r{} RA=r{} displacement={}",
-+					address, ip, (uint32)hCPU->spr.LR,
-+					instruction, rt, ra, displacement);
-+			}
-+			else
-+			{
-+				cemuLog_log(LogType::Force,
-+					"[PPC READ NULL] EA=0x{:08x} IP=0x{:08x} LR=0x{:08x} "
-+					"instruction=0x{:08x} opcode={}",
-+					address, ip, (uint32)hCPU->spr.LR,
-+					instruction, opcode);
-+			}
++			cemuLog_log(LogType::Force,
++				"[PPC LWZ DIAG] EA=0x{:08x} hostPtr=0x{:016x} "
++				"IP=0x{:08x} LR=0x{:08x} instruction=0x{:08x} "
++				"opcode={} RT=r{} RA=r{} displacement={}",
++				address,
++				(uint64)ptr,
++				ip,
++				(uint32)hCPU->spr.LR,
++				instruction,
++				opcode,
++				rt,
++				ra,
++				displacement);
 +		}
 +
 +		uint32 v = *(uint32*)ptr;
