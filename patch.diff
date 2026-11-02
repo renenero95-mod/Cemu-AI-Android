@@ -1,301 +1,91 @@
 diff --git a/src/Cafe/HW/Espresso/Recompiler/BackendAArch64/BackendAArch64.cpp b/src/Cafe/HW/Espresso/Recompiler/BackendAArch64/BackendAArch64.cpp
-index 2555101..1dab2f8 100644
+old mode 100644
+new mode 100755
+index 2555101..1d989bf
 --- a/src/Cafe/HW/Espresso/Recompiler/BackendAArch64/BackendAArch64.cpp
 +++ b/src/Cafe/HW/Espresso/Recompiler/BackendAArch64/BackendAArch64.cpp
-@@ -291,12 +291,24 @@ struct AArch64GenContext_t : CodeGenerator
- template<std::derived_from<VRegSc> T>
- T fpReg(const IMLReg& imlReg)
- {
--	cemu_assert_debug(imlReg.GetRegFormat() == IMLRegFormat::F64);
-+	cemu_assert_debug(imlReg.GetRegFormat() == IMLRegFormat::F32 || imlReg.GetRegFormat() == IMLRegFormat::F64);
- 	auto regId = imlReg.GetRegID();
- 	cemu_assert_debug(regId >= IMLArchAArch64::PHYSREG_FPR_BASE && regId < IMLArchAArch64::PHYSREG_FPR_BASE + IMLArchAArch64::PHYSREG_FPR_COUNT);
- 	return T(regId - IMLArchAArch64::PHYSREG_FPR_BASE);
- }
- 
-+template<typename Fn>
-+void withFPRegFormat(const IMLReg& imlReg, Fn&& fn)
-+{
-+	if (imlReg.GetRegFormat() == IMLRegFormat::F32)
-+		fn(fpReg<SReg>(imlReg));
-+	else
-+	{
-+		cemu_assert_debug(imlReg.GetRegFormat() == IMLRegFormat::F64);
-+		fn(fpReg<DReg>(imlReg));
-+	}
-+}
-+
- template<std::derived_from<RReg> T>
- T gpReg(const IMLReg& imlReg)
- {
-@@ -1253,153 +1265,116 @@ void AArch64GenContext_t::fpr_r_r(IMLInstruction* imlInstruction)
- 
- 	if (imlInstruction->operation == PPCREC_IML_OP_FPR_FLOAT_TO_INT)
- 	{
--		fcvtzs(gpReg<WReg>(imlRegR), fpReg<DReg>(imlRegA));
-+		withFPRegFormat(imlRegA, [&](auto regA) { fcvtzs(gpReg<WReg>(imlRegR), regA); });
- 		return;
- 	}
- 	else if (imlInstruction->operation == PPCREC_IML_OP_FPR_INT_TO_FLOAT)
- 	{
--		scvtf(fpReg<DReg>(imlRegR), gpReg<WReg>(imlRegA));
-+		withFPRegFormat(imlRegR, [&](auto regR) { scvtf(regR, gpReg<WReg>(imlRegA)); });
- 		return;
- 	}
- 	else if (imlInstruction->operation == PPCREC_IML_OP_FPR_BITCAST_INT_TO_FLOAT)
- 	{
--		cemu_assert_debug(imlRegR.GetRegFormat() == IMLRegFormat::F64); // assuming target is always F64 for now
--		// exact operation depends on size of types. Floats are automatically promoted to double if the target is F64
--		DReg regFprDReg = fpReg<DReg>(imlRegR);
--		SReg regFprSReg = fpReg<SReg>(imlRegR);
--		if (imlRegA.GetRegFormat() == IMLRegFormat::I32)
--		{
--			fmov(regFprSReg, gpReg<WReg>(imlRegA));
--			// float to double
--			fcvt(regFprDReg, regFprSReg);
--		}
--		else if (imlRegA.GetRegFormat() == IMLRegFormat::I64)
-+		if (imlRegR.GetRegFormat() == IMLRegFormat::F32)
- 		{
--			fmov(regFprDReg, gpReg<XReg>(imlRegA));
-+			cemu_assert_debug(imlRegA.GetRegFormat() == IMLRegFormat::I32);
-+			fmov(fpReg<SReg>(imlRegR), gpReg<WReg>(imlRegA));
+@@ -1169,7 +1169,7 @@ bool AArch64GenContext_t::fpr_load(IMLInstruction* imlInstruction, bool indexed)
  		}
  		else
  		{
--			cemu_assert_unimplemented();
-+			cemu_assert_debug(imlRegR.GetRegFormat() == IMLRegFormat::F64);
-+			DReg regFprDReg = fpReg<DReg>(imlRegR);
-+			if (imlRegA.GetRegFormat() == IMLRegFormat::I32)
-+			{
-+				SReg regFprSReg = fpReg<SReg>(imlRegR);
-+				fmov(regFprSReg, gpReg<WReg>(imlRegA));
-+				fcvt(regFprDReg, regFprSReg);
-+			}
-+			else if (imlRegA.GetRegFormat() == IMLRegFormat::I64)
-+				fmov(regFprDReg, gpReg<XReg>(imlRegA));
-+			else
-+				cemu_assert_unimplemented();
+-			fcvt(dataDReg, dataSReg);
++			dd(0x1E22C000u | (static_cast<uint32>(dataSReg.getIdx()) << 5) | static_cast<uint32>(dataDReg.getIdx()));
  		}
- 		return;
  	}
- 
--	DReg regR = fpReg<DReg>(imlRegR);
--	DReg regA = fpReg<DReg>(imlRegA);
--
--	if (imlInstruction->operation == PPCREC_IML_OP_FPR_ASSIGN)
--	{
--		fmov(regR, regA);
--	}
--	else if (imlInstruction->operation == PPCREC_IML_OP_FPR_MULTIPLY)
--	{
--		fmul(regR, regR, regA);
--	}
--	else if (imlInstruction->operation == PPCREC_IML_OP_FPR_DIVIDE)
--	{
--		fdiv(regR, regR, regA);
--	}
--	else if (imlInstruction->operation == PPCREC_IML_OP_FPR_ADD)
--	{
--		fadd(regR, regR, regA);
--	}
--	else if (imlInstruction->operation == PPCREC_IML_OP_FPR_SUB)
--	{
--		fsub(regR, regR, regA);
--	}
--	else if (imlInstruction->operation == PPCREC_IML_OP_FPR_FCTIWZ)
--	{
--		fcvtzs(regR, regA);
--	}
--	else
--	{
--		cemu_assert_suspicious();
--	}
-+	cemu_assert_debug(imlRegR.GetRegFormat() == imlRegA.GetRegFormat());
-+	withFPRegFormat(imlRegR, [&](auto regR) {
-+		auto regA = fpReg<std::decay_t<decltype(regR)>>(imlRegA);
-+		if (imlInstruction->operation == PPCREC_IML_OP_FPR_ASSIGN) fmov(regR, regA);
-+		else if (imlInstruction->operation == PPCREC_IML_OP_FPR_MULTIPLY) fmul(regR, regR, regA);
-+		else if (imlInstruction->operation == PPCREC_IML_OP_FPR_DIVIDE) fdiv(regR, regR, regA);
-+		else if (imlInstruction->operation == PPCREC_IML_OP_FPR_ADD) fadd(regR, regR, regA);
-+		else if (imlInstruction->operation == PPCREC_IML_OP_FPR_SUB) fsub(regR, regR, regA);
-+		else if (imlInstruction->operation == PPCREC_IML_OP_FPR_FCTIWZ) fcvtzs(regR, regA);
-+		else cemu_assert_suspicious();
-+	});
- }
- 
- void AArch64GenContext_t::fpr_r_r_r(IMLInstruction* imlInstruction)
- {
--	DReg regR = fpReg<DReg>(imlInstruction->op_fpr_r_r_r.regR);
--	DReg regA = fpReg<DReg>(imlInstruction->op_fpr_r_r_r.regA);
--	DReg regB = fpReg<DReg>(imlInstruction->op_fpr_r_r_r.regB);
--
--	if (imlInstruction->operation == PPCREC_IML_OP_FPR_MULTIPLY)
--	{
--		fmul(regR, regA, regB);
--	}
--	else if (imlInstruction->operation == PPCREC_IML_OP_FPR_ADD)
--	{
--		fadd(regR, regA, regB);
--	}
--	else if (imlInstruction->operation == PPCREC_IML_OP_FPR_SUB)
--	{
--		fsub(regR, regA, regB);
--	}
--	else
--	{
--		cemu_assert_suspicious();
--	}
-+	auto imlRegR = imlInstruction->op_fpr_r_r_r.regR;
-+	auto imlRegA = imlInstruction->op_fpr_r_r_r.regA;
-+	auto imlRegB = imlInstruction->op_fpr_r_r_r.regB;
-+	cemu_assert_debug(imlRegR.GetRegFormat() == imlRegA.GetRegFormat());
-+	cemu_assert_debug(imlRegR.GetRegFormat() == imlRegB.GetRegFormat());
-+	withFPRegFormat(imlRegR, [&](auto regR) {
-+		auto regA = fpReg<std::decay_t<decltype(regR)>>(imlRegA);
-+		auto regB = fpReg<std::decay_t<decltype(regR)>>(imlRegB);
-+		if (imlInstruction->operation == PPCREC_IML_OP_FPR_MULTIPLY) fmul(regR, regA, regB);
-+		else if (imlInstruction->operation == PPCREC_IML_OP_FPR_ADD) fadd(regR, regA, regB);
-+		else if (imlInstruction->operation == PPCREC_IML_OP_FPR_SUB) fsub(regR, regA, regB);
-+		else cemu_assert_suspicious();
-+	});
- }
- 
--/*
-- * FPR = op (fprA, fprB, fprC)
-- */
- void AArch64GenContext_t::fpr_r_r_r_r(IMLInstruction* imlInstruction)
- {
--	DReg regR = fpReg<DReg>(imlInstruction->op_fpr_r_r_r_r.regR);
--	DReg regA = fpReg<DReg>(imlInstruction->op_fpr_r_r_r_r.regA);
--	DReg regB = fpReg<DReg>(imlInstruction->op_fpr_r_r_r_r.regB);
--	DReg regC = fpReg<DReg>(imlInstruction->op_fpr_r_r_r_r.regC);
--
--	if (imlInstruction->operation == PPCREC_IML_OP_FPR_SELECT)
--	{
--		fcmp(regA, 0.0);
--		fcsel(regR, regC, regB, Cond::GE);
--	}
--	else
--	{
--		cemu_assert_suspicious();
--	}
-+	auto imlRegR = imlInstruction->op_fpr_r_r_r_r.regR;
-+	auto imlRegA = imlInstruction->op_fpr_r_r_r_r.regA;
-+	auto imlRegB = imlInstruction->op_fpr_r_r_r_r.regB;
-+	auto imlRegC = imlInstruction->op_fpr_r_r_r_r.regC;
-+	cemu_assert_debug(imlRegR.GetRegFormat() == imlRegA.GetRegFormat());
-+	cemu_assert_debug(imlRegR.GetRegFormat() == imlRegB.GetRegFormat());
-+	cemu_assert_debug(imlRegR.GetRegFormat() == imlRegC.GetRegFormat());
-+	withFPRegFormat(imlRegR, [&](auto regR) {
-+		auto regA = fpReg<std::decay_t<decltype(regR)>>(imlRegA);
-+		auto regB = fpReg<std::decay_t<decltype(regR)>>(imlRegB);
-+		auto regC = fpReg<std::decay_t<decltype(regR)>>(imlRegC);
-+		if (imlInstruction->operation == PPCREC_IML_OP_FPR_SELECT)
-+		{
-+			fcmp(regA, 0.0);
-+			fcsel(regR, regC, regB, Cond::GE);
-+		}
-+		else cemu_assert_suspicious();
-+	});
- }
- 
- void AArch64GenContext_t::fpr_r(IMLInstruction* imlInstruction)
- {
--	DReg regRDReg = fpReg<DReg>(imlInstruction->op_fpr_r.regR);
--	SReg regRSReg = fpReg<SReg>(imlInstruction->op_fpr_r.regR);
--
--	if (imlInstruction->operation == PPCREC_IML_OP_FPR_NEGATE)
--	{
--		fneg(regRDReg, regRDReg);
--	}
--	else if (imlInstruction->operation == PPCREC_IML_OP_FPR_LOAD_ONE)
--	{
--		fmov(regRDReg, 1.0);
--	}
--	else if (imlInstruction->operation == PPCREC_IML_OP_FPR_ABS)
--	{
--		fabs(regRDReg, regRDReg);
--	}
--	else if (imlInstruction->operation == PPCREC_IML_OP_FPR_NEGATIVE_ABS)
--	{
--		fabs(regRDReg, regRDReg);
--		fneg(regRDReg, regRDReg);
--	}
--	else if (imlInstruction->operation == PPCREC_IML_OP_FPR_ROUND_TO_SINGLE_PRECISION_BOTTOM)
--	{
--		// convert to 32bit single
+ 	else if (mode == PPCREC_FPR_LD_MODE_DOUBLE)
+@@ -1212,7 +1212,7 @@ bool AArch64GenContext_t::fpr_store(IMLInstruction* imlInstruction, bool indexed
+ 		}
+ 		else
+ 		{
+-			fcvt(TEMP_FPR.SReg, dataDReg);
++			dd(0x1E624000u | (static_cast<uint32>(dataDReg.getIdx()) << 5) | static_cast<uint32>(TEMP_FPR.SReg.getIdx()));
+ 			fmov(TEMP_GPR2.WReg, TEMP_FPR.SReg);
+ 		}
+ 		rev(TEMP_GPR2.WReg, TEMP_GPR2.WReg);
+@@ -1271,7 +1271,7 @@ void AArch64GenContext_t::fpr_r_r(IMLInstruction* imlInstruction)
+ 		{
+ 			fmov(regFprSReg, gpReg<WReg>(imlRegA));
+ 			// float to double
+-			fcvt(regFprDReg, regFprSReg);
++			dd(0x1E22C000u | (static_cast<uint32>(regFprSReg.getIdx()) << 5) | static_cast<uint32>(regFprDReg.getIdx()));
+ 		}
+ 		else if (imlRegA.GetRegFormat() == IMLRegFormat::I64)
+ 		{
+@@ -1387,14 +1387,14 @@ void AArch64GenContext_t::fpr_r(IMLInstruction* imlInstruction)
+ 	else if (imlInstruction->operation == PPCREC_IML_OP_FPR_ROUND_TO_SINGLE_PRECISION_BOTTOM)
+ 	{
+ 		// convert to 32bit single
 -		fcvt(regRSReg, regRDReg);
--		// convert back to 64bit double
++		dd(0x1E624000u | (static_cast<uint32>(regRDReg.getIdx()) << 5) | static_cast<uint32>(regRSReg.getIdx()));
+ 		// convert back to 64bit double
 -		fcvt(regRDReg, regRSReg);
--	}
--	else if (imlInstruction->operation == PPCREC_IML_OP_FPR_EXPAND_F32_TO_F64)
--	{
--		// convert bottom to 64bit double
++		dd(0x1E22C000u | (static_cast<uint32>(regRSReg.getIdx()) << 5) | static_cast<uint32>(regRDReg.getIdx()));
+ 	}
+ 	else if (imlInstruction->operation == PPCREC_IML_OP_FPR_EXPAND_F32_TO_F64)
+ 	{
+ 		// convert bottom to 64bit double
 -		fcvt(regRDReg, regRSReg);
--	}
--	else
--	{
--		cemu_assert_unimplemented();
--	}
-+	auto imlReg = imlInstruction->op_fpr_r.regR;
-+	withFPRegFormat(imlReg, [&](auto reg) {
-+		if (imlInstruction->operation == PPCREC_IML_OP_FPR_NEGATE) fneg(reg, reg);
-+		else if (imlInstruction->operation == PPCREC_IML_OP_FPR_LOAD_ONE) fmov(reg, 1.0);
-+		else if (imlInstruction->operation == PPCREC_IML_OP_FPR_ABS) fabs(reg, reg);
-+		else if (imlInstruction->operation == PPCREC_IML_OP_FPR_NEGATIVE_ABS) { fabs(reg, reg); fneg(reg, reg); }
-+		else if (imlInstruction->operation == PPCREC_IML_OP_FPR_ROUND_TO_SINGLE_PRECISION_BOTTOM)
-+		{
-+			if constexpr (std::is_same_v<std::decay_t<decltype(reg)>, DReg>)
-+			{
-+				SReg regS = fpReg<SReg>(imlReg);
-+				fcvt(regS, reg);
-+				fcvt(reg, regS);
-+			}
-+		}
-+		else if (imlInstruction->operation == PPCREC_IML_OP_FPR_EXPAND_F32_TO_F64)
-+		{
-+			cemu_assert_debug(imlReg.GetRegFormat() == IMLRegFormat::F64);
-+			SReg regS = fpReg<SReg>(imlReg);
-+			fcvt(reg, regS);
-+		}
-+		else cemu_assert_unimplemented();
-+	});
- }
- 
- Cond ImlFPCondToArm64Cond(IMLCondition cond)
++		dd(0x1E22C000u | (static_cast<uint32>(regRSReg.getIdx()) << 5) | static_cast<uint32>(regRDReg.getIdx()));
+ 	}
+ 	else
+ 	{
 diff --git a/src/Cafe/HW/Espresso/Recompiler/PPCRecompilerImlGen.cpp b/src/Cafe/HW/Espresso/Recompiler/PPCRecompilerImlGen.cpp
-index e76a53f..20c02c0 100644
+index e76a53f..9b7e273 100644
 --- a/src/Cafe/HW/Espresso/Recompiler/PPCRecompilerImlGen.cpp
 +++ b/src/Cafe/HW/Espresso/Recompiler/PPCRecompilerImlGen.cpp
-@@ -2008,12 +2008,12 @@ bool PPCRecompiler_decodePPCInstruction(ppcImlGenContext_t* ppcImlGenContext)
- 				unsupportedInstructionFound = true;
- 			ppcImlGenContext->hasFPUInstruction = true;
- 			break;
--		case 12: // PS_MULS0
-+		case 6: // PS_MULS0 (XO low 5 bits)
- 			if (PPCRecompilerImlGen_PS_MULSX(ppcImlGenContext, opcode, false) == false)
- 				unsupportedInstructionFound = true;
- 			ppcImlGenContext->hasFPUInstruction = true;
- 			break;
--		case 13: // PS_MULS1
-+		case 7: // PS_MULS1 (XO low 5 bits)
- 			if (PPCRecompilerImlGen_PS_MULSX(ppcImlGenContext, opcode, true) == false)
- 				unsupportedInstructionFound = true;
- 			ppcImlGenContext->hasFPUInstruction = true;
-@@ -2973,7 +2973,14 @@ bool PPCIMLGen_FillBasicBlock(ppcImlGenContext_t& ppcImlGenContext, PPCBasicBloc
+@@ -2973,7 +2973,34 @@ bool PPCIMLGen_FillBasicBlock(ppcImlGenContext_t& ppcImlGenContext, PPCBasicBloc
  
  		if (PPCRecompiler_decodePPCInstruction(&ppcImlGenContext))
  		{
 -			cemuLog_logDebug(LogType::Force, "PPCRecompiler: Unsupported instruction at 0x{:08x}", addressOfCurrentInstruction);
-+			const uint32 opcode = CPU_swapEndianU32(*(ppcImlGenContext.currentInstruction - 1));
++			// decodePPCInstruction has already advanced the pointer.
++			const uint32 opcode = CPU_swapEndianU32(
++				*(ppcImlGenContext.currentInstruction - 1)
++			);
++
 +			const uint32 primary = (opcode >> 26) & 0x3F;
 +			const uint32 rt = (opcode >> 21) & 0x1F;
 +			const uint32 ra = (opcode >> 16) & 0x1F;
 +			const uint32 rb = (opcode >> 11) & 0x1F;
 +			const uint32 xo = (opcode >> 1) & 0x3FF;
 +			const uint32 rc = opcode & 1;
-+			cemuLog_log(LogType::Force, "[PPCREC UNSUPPORTED] PC=0x{:08X} OPCODE=0x{:08X} PRIMARY={} XO={} RT={} RA={} RB={} Rc={}", addressOfCurrentInstruction, opcode, primary, xo, rt, ra, rb, rc);
++
++			cemuLog_log(
++				LogType::Force,
++				"[PPCREC UNSUPPORTED] "
++				"PC=0x{:08X} OPCODE=0x{:08X} "
++				"PRIMARY={} XO={} "
++				"RT={} RA={} RB={} Rc={}",
++				addressOfCurrentInstruction,
++				opcode,
++				primary,
++				xo,
++				rt,
++				ra,
++				rb,
++				rc
++			);
++
  			ppcImlGenContext.currentOutputSegment = nullptr;
  			return false;
  		}
