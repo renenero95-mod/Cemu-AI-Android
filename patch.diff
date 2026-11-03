@@ -381,49 +381,30 @@ index 83658f3..818e8a6 100644
  		cafeExportRegister("coreinit", CoreInitDefaultHeap, LogType::CoreinitMem);
  
 diff --git a/src/Cafe/OS/libs/coreinit/coreinit_Thread.cpp b/src/Cafe/OS/libs/coreinit/coreinit_Thread.cpp
-index 7c7571f..d58b0e0 100644
+index 7c7571f..0d8f852 100644
 --- a/src/Cafe/OS/libs/coreinit/coreinit_Thread.cpp
 +++ b/src/Cafe/OS/libs/coreinit/coreinit_Thread.cpp
-@@ -14,6 +14,8 @@
- #include "util/Fiber/Fiber.h"
- 
- #include "util/helpers/helpers.h"
-+#include "util/CemuProfiling.h"
+@@ -20,6 +20,7 @@
+ #include <arm_acle.h>
+ #elif defined(_MSC_VER)
+ #include <intrin.h>
 +#include "util/CemuThreadWatchdog.h"
- 
- #ifdef __arm64__
- #if defined(__clang__)
-@@ -23,6 +25,10 @@
  #endif
  #endif
  
-+#ifdef __ANDROID__
-+#include <sched.h>
-+#endif
-+
- namespace {
- 
- void enableFlushDenormalsToZero()
-@@ -42,9 +48,8 @@ void enableFlushDenormalsToZero()
- 
- }
- 
--SlimRWLock srwlock_activeThreadList;
- 
--// public list of active threads
-+
- MPTR activeThread[256];
- sint32 activeThreadCount = 0;
- 
-@@ -52,1632 +57,9 @@ void nnNfp_update();
- 
+@@ -53,1365 +54,59 @@ void nnNfp_update();
  namespace coreinit
  {
--#ifdef __arm64__
+ #ifdef __arm64__
 -	void __OSFiberThreadEntry(uint32, uint32);
--#else
++    void __OSFiberThreadEntry(uint32 _high, uint32 _low)
++    {
++        uint64 _thread = (uint64)_high << 32 | _low;
+ #else
 -	void __OSFiberThreadEntry(void* thread);
--#endif
++    void __OSFiberThreadEntry(void* _thread)
++    {
+ #endif
 -	void __OSAddReadyThreadToRunQueue(OSThread_t* thread);
 -	void __OSRemoveThreadFromRunQueues(OSThread_t* thread);
 -};
@@ -1156,14 +1137,16 @@ index 7c7571f..d58b0e0 100644
 -
 -		return true;
 -	}
--
++        OSHostThread* hostThread = (OSHostThread*)_thread;
+ 
 -	// adds the thread to each core's run queue if in runable state
 -	void __OSAddReadyThreadToRunQueue(OSThread_t* thread)
 -	{
 -        cemu_assert_debug(MMU_IsInPPCMemorySpace(thread));
 -        cemu_assert_debug(thread->IsValidMagic());
 -		cemu_assert_debug(__OSHasSchedulerLock());
--
++        enableFlushDenormalsToZero();
+ 
 -		if (thread->state != OSThread_t::THREAD_STATE::STATE_READY)
 -			return;
 -		if (thread->suspendCounter != 0)
@@ -1180,7 +1163,11 @@ index 7c7571f..d58b0e0 100644
 -			g_coreRunQueueThreadCount[i].increment();
 -		}
 -	}
--
++        PPCInterpreter_t* hCPU = &hostThread->ppcInstance;
++        __OSLoadThread(hostThread->m_thread, hCPU, hostThread->selectedCore);
++        __OSThreadStartTimeslice(hostThread->m_thread, &hostThread->ppcInstance);
++        __OSUnlockScheduler(); // lock is always held when switching to a fiber, so we need to unlock it here
+ 
 -	void __OSRemoveThreadFromRunQueues(OSThread_t* thread)
 -	{
 -		cemu_assert_debug(__OSHasSchedulerLock());
@@ -1290,14 +1277,28 @@ index 7c7571f..d58b0e0 100644
 -		threadQueue->queueAndWait(OSGetCurrentThread());
 -		__OSUnlockScheduler();
 -	}
--
++#if CEMU_THREAD_WATCHDOG
++        // First heartbeat: confirms entry into the PPC fiber.
++        CemuWatchdog::Touch(
++            CemuWatchdog::Main,
++            CemuWatchdog::Loop);
++#endif
+ 
 -	void OSWakeupThread(OSThreadQueue* threadQueue)
 -	{
 -		__OSLockScheduler();
 -		threadQueue->wakeupEntireWaitQueue(true);
 -		__OSUnlockScheduler();
 -	}
--
++        while (true)
++        {
++#if CEMU_THREAD_WATCHDOG
++            // Heartbeat on every fiber timeslice.
++            CemuWatchdog::Touch(
++                CemuWatchdog::Main,
++                CemuWatchdog::Loop);
++#endif
+ 
 -	bool OSSetThreadAffinity(OSThread_t* thread, uint32 affinityMask)
 -	{
 -		cemu_assert_debug((affinityMask & ~7) == 0);
@@ -1319,7 +1320,8 @@ index 7c7571f..d58b0e0 100644
 -                __OSAddReadyThreadToRunQueue(thread);
 -            }
 -            else
--            {
++            if (hCPU->remainingCycles > 0)
+             {
 -                thread->attr = (thread->attr & ~7) | (affinityMask & 7);
 -                thread->context.setAffinity(affinityMask);
 -            }
@@ -1468,7 +1470,9 @@ index 7c7571f..d58b0e0 100644
 -	{
 -		cemu_assert_debug(__OSHasSchedulerLock());
 -		cemu_assert_debug(s_threadToFiber.find(thread) != s_threadToFiber.end());
--
++                // try to enter recompiler immediately
++                PPCRecompiler_attemptEnterWithoutRecompile(hCPU, hCPU->instructionPointer);
+ 
 -		OSHostThread* hostThread = s_threadToFiber.find(thread)->second;
 -		hostThread->selectedCore = coreIndex;
 -		Fiber::Switch(hostThread->m_fiber);
@@ -1621,10 +1625,17 @@ index 7c7571f..d58b0e0 100644
 -
 -		__OSRemoveThreadFromRunQueues(selectedThread);
 -		selectedThread->state = OSThread_t::THREAD_STATE::STATE_RUNNING;
--
++                // keep executing as long as there are cycles left
++                while ((--hCPU->remainingCycles) >= 0)
++                    PPCInterpreterSlim_executeInstruction(hCPU);
++            }
+ 
 -		return selectedThread;
 -	}
--
++            // reset reservation
++            hCPU->reservedMemAddr = 0;
++            hCPU->reservedMemValue = 0;
+ 
 -    void __OSDeleteAllActivePPCThreads()
 -    {
 -        __OSLockScheduler();
@@ -1633,10 +1644,14 @@ index 7c7571f..d58b0e0 100644
 -            MEMPTR<OSThread_t> t{activeThread[0]};
 -            t->state = OSThread_t::THREAD_STATE::STATE_NONE;
 -            __OSDeactivateThread(t.GetPtr());
--        }
++            // reschedule
++            __OSLockScheduler();
++            __OSThreadSwitchToNext();
++            __OSUnlockScheduler();
+         }
 -        __OSUnlockScheduler();
--    }
--
+     }
+ 
 -	void __OSCheckSystemEvents()
 -	{
 -		// AX update
@@ -1740,14 +1755,12 @@ index 7c7571f..d58b0e0 100644
 -		__OSLoadThread(hostThread->m_thread, &hostThread->ppcInstance, hostThread->selectedCore);
 -		__OSThreadStartTimeslice(hostThread->m_thread, &hostThread->ppcInstance);
 -	}
-+	SlimRWLock srwlock_activeThreadList;
- 
- #ifdef __arm64__
+-
+-#ifdef __arm64__
 -	void __OSFiberThreadEntry(uint32 _high, uint32 _low)
 -	{
 -		uint64 _thread = (uint64) _high << 32 | _low;
-+	void __OSFiberThreadEntry(uint32, uint32);
- #else
+-#else
 -	void __OSFiberThreadEntry(void* _thread)
 -	{
 -#endif
@@ -1781,276 +1794,15 @@ index 7c7571f..d58b0e0 100644
 -		}
 -	}
 -
--#if BOOST_OS_LINUX
--	#include <unistd.h>
--	#include <sys/prctl.h>
--
--	std::vector<pid_t> g_schedulerThreadIds;
--	std::mutex g_schedulerThreadIdsLock;
--
--	std::vector<pid_t>& OSGetSchedulerThreadIds()
--	{
--		std::lock_guard schedulerThreadIdsLockGuard(g_schedulerThreadIdsLock);
--		return g_schedulerThreadIds;
--	}
--#endif
--
--	void OSSchedulerCoreEmulationThread(void* _assignedCoreIndex)
--	{
--		SetThreadName(fmt::format("OSSched[core={}]", (uintptr_t)_assignedCoreIndex).c_str());
--		t_assignedCoreIndex = (sint32)(uintptr_t)_assignedCoreIndex;
--
--		enableFlushDenormalsToZero();
--
--#if BOOST_OS_LINUX
--		if (g_gdbstub)
--		{
--			// need to allow the GDBStub to attach to our thread
--			prctl(PR_SET_DUMPABLE, (unsigned long)1);
--			prctl(PR_SET_PTRACER, PR_SET_PTRACER_ANY);
--		}
--
--		pid_t tid = gettid();
--		{
--			std::lock_guard schedulerThreadIdsLockGuard(g_schedulerThreadIdsLock);
--			g_schedulerThreadIds.emplace_back(tid);
--		}
--#endif
--
--		t_schedulerFiber = Fiber::PrepareCurrentThread();
--
--		// create scheduler idle fiber and switch to it
--		g_idleLoopFiber[t_assignedCoreIndex] = new Fiber(__OSThreadCoreIdle, nullptr, nullptr);
--		cemu_assert_debug(PPCInterpreter_getCurrentInstance() == nullptr);
--		__OSLockScheduler();
--		Fiber::Switch(*g_idleLoopFiber[t_assignedCoreIndex]);
--		// returned from scheduler loop, exit thread
--		cemu_assert_debug(!__OSHasSchedulerLock());
--	}
--
--	std::vector<std::thread::native_handle_type> g_schedulerThreadHandles;
--
--	std::vector<std::thread::native_handle_type>& OSGetSchedulerThreads()
--	{
--		return g_schedulerThreadHandles;
--	}
--
--	// starts PPC core emulation
--	void OSSchedulerBegin(sint32 numCPUEmulationThreads)
--	{
--		std::unique_lock _lock(sSchedulerStateMtx);
--		if (sSchedulerActive.exchange(true))
--			return;
--		cemu_assert_debug(numCPUEmulationThreads == 1 || numCPUEmulationThreads == 3);
--		g_isMulticoreMode = numCPUEmulationThreads > 1;
--		if (numCPUEmulationThreads == 1)
--			sSchedulerThreads.emplace_back(OSSchedulerCoreEmulationThread, (void*)0);
--		else if (numCPUEmulationThreads == 3)
--		{
--			for (size_t i = 0; i < 3; i++)
--				sSchedulerThreads.emplace_back(OSSchedulerCoreEmulationThread, (void*)i);
--		}
--		else
--			cemu_assert_debug(false);
--		for (auto& it : sSchedulerThreads)
--			g_schedulerThreadHandles.emplace_back(it.native_handle());
--	}
--
--    // shuts down all scheduler host threads and deletes all fibers and ppc threads
--	void OSSchedulerEnd()
--	{
--		std::unique_lock _lock(sSchedulerStateMtx);
--		sSchedulerActive.store(false);
--		for (size_t i = 0; i < Espresso::CORE_COUNT; i++)
--			g_coreRunQueueThreadCount[i].increment(); // make sure to wake up cores if they are paused and waiting for runnable threads
--		// wait for threads to stop execution
--		for (auto& threadItr : sSchedulerThreads)
--			threadItr.join();
--		sSchedulerThreads.clear();
--		g_schedulerThreadHandles.clear();
--#if BOOST_OS_LINUX
--		{
--			std::lock_guard schedulerThreadIdsLockGuard(g_schedulerThreadIdsLock);
--			g_schedulerThreadIds.clear();
--		}
--#endif
--		// clean up all fibers
--		for (auto& it : g_idleLoopFiber)
--		{
--			delete it;
--			it = nullptr;
--		}
--		for (auto& it : s_threadToFiber)
--		{
--			OSHostThread* hostThread = it.second;
--			delete hostThread;
--		}
--		s_threadToFiber.clear();
--	}
--
--	SysAllocator<OSThread_t, PPC_CORE_COUNT> s_defaultThreads;
--	SysAllocator<uint8, PPC_CORE_COUNT * 1024 * 1024> s_stack;
--
--	OSThread_t* OSGetDefaultThread(sint32 coreIndex)
--	{
--		if (coreIndex < 0 || coreIndex >= PPC_CORE_COUNT)
--			return nullptr;
--		return s_defaultThreads.GetPtr() + coreIndex;
--	}
--
--	void* OSGetDefaultThreadStack(sint32 coreIndex, uint32& size)
--	{
--		if (coreIndex < 0 || coreIndex >= PPC_CORE_COUNT)
--			return nullptr;
--		size = 1024 * 1024;
--		return s_stack.GetPtr() + coreIndex * size;
--	}
--
--	void OSInitThreadQueue(OSThreadQueue* threadQueue)
--	{
--		threadQueue->head = nullptr;
--		threadQueue->tail = nullptr;
--		threadQueue->userData = nullptr;
--		threadQueue->ukn0C = 0;
--	}
--	
--	void OSInitThreadQueueEx(OSThreadQueue* threadQueue, void* userData)
--	{
--		threadQueue->head = nullptr;
--		threadQueue->tail = nullptr;
--		threadQueue->userData = userData;
--		threadQueue->ukn0C = 0;
--	}
--	
--	/* Thread terminator threads (for calling thread deallocators) */
--	struct TerminatorThread 
--	{
--		struct DeallocatorQueueEntry
--		{
--			DeallocatorQueueEntry() = default;
--			DeallocatorQueueEntry(OSThread_t* thread, MEMPTR<void> stack, MEMPTR<void> deallocatorFunc) : thread(thread), stack(stack), deallocatorFunc(deallocatorFunc) {};
--
--			OSThread_t* thread{};
--			MEMPTR<void> stack;
--			MEMPTR<void> deallocatorFunc;
--		};
--
--		SysAllocator<OSThread_t> terminatorThread;
--		SysAllocator<uint8, 16 * 1024> threadStack;
--		SysAllocator<char, 64> threadName;
--		SysAllocator<OSSemaphore> semaphoreQueuedDeallocators;
--		ConcurrentQueue<DeallocatorQueueEntry> queueDeallocators;
--	};
--
--	TerminatorThread s_terminatorThreads[PPC_CORE_COUNT];
--
--	void __OSTerminatorThreadFunc(PPCInterpreter_t* hCPU)
--	{
--		uint32 coreIndex = OSGetCoreId();
--		while (OSWaitSemaphore(s_terminatorThreads[coreIndex].semaphoreQueuedDeallocators.GetPtr()))
--		{
--			TerminatorThread::DeallocatorQueueEntry queueEntry;
--			s_terminatorThreads[coreIndex].queueDeallocators.pop(queueEntry);
--			PPCCoreCallback(queueEntry.deallocatorFunc, queueEntry.thread, queueEntry.stack);
--		}
--		osLib_returnFromFunction(hCPU, 0);
--	}
--
--	// queue thread deallocation to run after current thread finishes
--	// the termination threads run at a higher priority on the same core
--	void __OSQueueThreadDeallocation(OSThread_t* thread)
--	{
--		uint32 coreIndex = OSGetCoreId();
--		TerminatorThread::DeallocatorQueueEntry queueEntry(thread, thread->stackEnd, thread->deallocatorFunc);
--		s_terminatorThreads[coreIndex].queueDeallocators.push(queueEntry);
--		OSSignalSemaphoreInternal(s_terminatorThreads[coreIndex].semaphoreQueuedDeallocators.GetPtr(), false); // do not reschedule here! Current thread must not be interrupted otherwise deallocator will run too early
--	}
--
--	void __OSInitTerminatorThreads()
--	{
--		for (sint32 i = 0; i < PPC_CORE_COUNT; i++)
--		{
--			OSInitSemaphore(s_terminatorThreads[i].semaphoreQueuedDeallocators.GetPtr(), 0);
--			sprintf(s_terminatorThreads[i].threadName.GetPtr(), "{SYS Thread Terminator Core %d}", i);
--			OSCreateThreadType(s_terminatorThreads[i].terminatorThread.GetPtr(), PPCInterpreter_makeCallableExportDepr(__OSTerminatorThreadFunc), 0, nullptr, (uint8*)s_terminatorThreads[i].threadStack.GetPtr() + s_terminatorThreads[i].threadStack.GetByteSize(), (sint32)s_terminatorThreads[i].threadStack.GetByteSize(), 0, 1 << i, OSThread_t::THREAD_TYPE::TYPE_IO);
--			OSSetThreadName(s_terminatorThreads[i].terminatorThread.GetPtr(), s_terminatorThreads[i].threadName.GetPtr());
--			OSResumeThread(s_terminatorThreads[i].terminatorThread.GetPtr());
--		}
--	}
--
--	SysAllocator<char, 64> _defaultThreadName[PPC_CORE_COUNT];
--
--	void __OSInitDefaultThreads()
--	{
--		for (sint32 i = 0; i < PPC_CORE_COUNT; i++)
--		{
--			sprintf(_defaultThreadName[i].GetPtr(), "Default Core %d", i);
--			OSThread_t* coreDefaultThread = coreinit::OSGetDefaultThread(i);
--			uint32 stackSize;
--			void* stackBase = coreinit::OSGetDefaultThreadStack(i, stackSize);
--			coreinit::OSCreateThreadType(coreDefaultThread, MPTR_NULL, 0, nullptr, (uint8*)stackBase + stackSize, stackSize, 16, 1 << i, OSThread_t::THREAD_TYPE::TYPE_APP);
--			coreinit::OSSetThreadName(coreDefaultThread, _defaultThreadName[i].GetPtr());
--		}
--	}
--
--	void MapThreadExports()
--	{
--		cafeExportRegister("coreinit", OSCreateThreadType, LogType::CoreinitThread);
--		cafeExportRegister("coreinit", OSCreateThread, LogType::CoreinitThread);
--		cafeExportRegister("coreinit", __OSCreateThreadType, LogType::CoreinitThread);
--		cafeExportRegister("coreinit", OSExitThread, LogType::CoreinitThread);
--
--		cafeExportRegister("coreinit", OSGetCurrentThread, LogType::CoreinitThread);
--		cafeExportRegister("coreinit", OSSetThreadSpecific, LogType::CoreinitThread);
--		cafeExportRegister("coreinit", OSGetThreadSpecific, LogType::CoreinitThread);
--		cafeExportRegister("coreinit", OSSetThreadName, LogType::CoreinitThread);
--		cafeExportRegister("coreinit", OSGetThreadName, LogType::CoreinitThread);
--
--		cafeExportRegister("coreinit", OSRunThread, LogType::CoreinitThread);
--		cafeExportRegister("coreinit", OSDetachThread, LogType::CoreinitThread);
--		cafeExportRegister("coreinit", OSJoinThread, LogType::CoreinitThread);
--
--		cafeExportRegister("coreinit", OSResumeThread, LogType::CoreinitThread);
--		cafeExportRegister("coreinit", OSContinueThread, LogType::CoreinitThread);
--		cafeExportRegister("coreinit", OSSuspendThread, LogType::CoreinitThread);
--		cafeExportRegister("coreinit", __OSSuspendThreadNolock, LogType::CoreinitThread);
--		cafeExportRegister("coreinit", OSSleepThread, LogType::CoreinitThread);
--		cafeExportRegister("coreinit", OSWakeupThread, LogType::CoreinitThread);
--
--		cafeExportRegister("coreinit", OSYieldThread, LogType::CoreinitThread);
--		cafeExportRegister("coreinit", OSSleepTicks, LogType::CoreinitThread);
--
--		cafeExportRegister("coreinit", OSSetThreadDeallocator, LogType::CoreinitThread);
--		cafeExportRegister("coreinit", OSSetThreadCleanupCallback, LogType::CoreinitThread);
--		cafeExportRegister("coreinit", OSSetThreadPriority, LogType::CoreinitThread);
--		cafeExportRegister("coreinit", OSGetThreadPriority, LogType::CoreinitThread);
--		cafeExportRegister("coreinit", OSSetThreadAffinity, LogType::CoreinitThread);
--		cafeExportRegister("coreinit", OSGetThreadAffinity, LogType::CoreinitThread);
--
--		cafeExportRegister("coreinit", OSIsThreadTerminated, LogType::CoreinitThread);
--		cafeExportRegister("coreinit", OSIsThreadSuspended, LogType::CoreinitThread);
--		cafeExportRegister("coreinit", OSCancelThread, LogType::CoreinitThread);
--		cafeExportRegister("coreinit", OSTestThreadCancel, LogType::CoreinitThread);
--
--		cafeExportRegister("coreinit", OSGetDefaultThread, LogType::CoreinitThread);
--
--		// OSThreadQueue
--		cafeExportRegister("coreinit", OSInitThreadQueue, LogType::CoreinitThread);
--		cafeExportRegister("coreinit", OSInitThreadQueueEx, LogType::CoreinitThread);
--    }
--
--	void InitializeThread()
--	{
--		OSInitThreadQueue(g_activeThreadQueue.GetPtr());
--		for (sint32 i = 0; i < Espresso::CORE_COUNT; i++)
--			OSInitThreadQueue(g_coreRunQueue.GetPtr() + i);
--		for (sint32 i = 0; i < Espresso::CORE_COUNT; i++)
--			__currentCoreThread[i] = nullptr;
--		__OSInitDefaultThreads();
--		__OSInitTerminatorThreads();
--	}
+ #if BOOST_OS_LINUX
+ 	#include <unistd.h>
+ 	#include <sys/prctl.h>
+@@ -1680,4 +375,4 @@ namespace coreinit
+ 		__OSInitDefaultThreads();
+ 		__OSInitTerminatorThreads();
+ 	}
 -}
-+	void 
++}
 \ No newline at end of file
 diff --git a/src/Cafe/OS/libs/snd_core/ax_out.cpp b/src/Cafe/OS/libs/snd_core/ax_out.cpp
 index 6cb1599..cb8ae31 100644
@@ -2103,9 +1855,10 @@ index 6cb1599..cb8ae31 100644
  		constexpr static auto kTimeout = std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::milliseconds(((IAudioAPI::kBlockCount * 3) / 4) * (AX_FRAMES_PER_GROUP * 3)));
  		constexpr static auto kWaitDuration = std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::milliseconds(3));
  		constexpr static auto kWaitDurationFast = std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::microseconds(2900));
-diff --git a/mod/src/util/CemuProfiling.h b/src/util/CemuProfiling.h
+diff --git a/src/util/CemuProfiling.h b/src/util/CemuProfiling.h
 new file mode 100644
-index 0000000..1d115a4
+index 0000000..1111111
+index e69de29..1d115a4 100644
 --- /dev/null
 +++ b/src/util/CemuProfiling.h
 @@ -0,0 +1,96 @@
@@ -2205,9 +1958,10 @@ index 0000000..1d115a4
 +    }
 +}
 +#endif
-diff --git a/mod/src/util/CemuThreadWatchdog.h b/src/util/CemuThreadWatchdog.h
+diff --git a/src/util/CemuThreadWatchdog.h b/src/util/CemuThreadWatchdog.h
 new file mode 100644
-index 0000000..59c8471
+index 0000000..1111111
+index e69de29..59c8471 100644
 --- /dev/null
 +++ b/src/util/CemuThreadWatchdog.h
 @@ -0,0 +1,119 @@
