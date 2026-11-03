@@ -1,3 +1,52 @@
+diff --git a/src/Cafe/HW/Espresso/Recompiler/BackendAArch64/BackendAArch64.cpp b/src/Cafe/HW/Espresso/Recompiler/BackendAArch64/BackendAArch64.cpp
+index 2555101..1d989bf 100644
+--- a/src/Cafe/HW/Espresso/Recompiler/BackendAArch64/BackendAArch64.cpp
++++ b/src/Cafe/HW/Espresso/Recompiler/BackendAArch64/BackendAArch64.cpp
+@@ -1169,7 +1169,7 @@ bool AArch64GenContext_t::fpr_load(IMLInstruction* imlInstruction, bool indexed)
+ 		}
+ 		else
+ 		{
+-			fcvt(dataDReg, dataSReg);
++			dd(0x1E22C000u | (static_cast<uint32>(dataSReg.getIdx()) << 5) | static_cast<uint32>(dataDReg.getIdx()));
+ 		}
+ 	}
+ 	else if (mode == PPCREC_FPR_LD_MODE_DOUBLE)
+@@ -1212,7 +1212,7 @@ bool AArch64GenContext_t::fpr_store(IMLInstruction* imlInstruction, bool indexed
+ 		}
+ 		else
+ 		{
+-			fcvt(TEMP_FPR.SReg, dataDReg);
++			dd(0x1E624000u | (static_cast<uint32>(dataDReg.getIdx()) << 5) | static_cast<uint32>(TEMP_FPR.SReg.getIdx()));
+ 			fmov(TEMP_GPR2.WReg, TEMP_FPR.SReg);
+ 		}
+ 		rev(TEMP_GPR2.WReg, TEMP_GPR2.WReg);
+@@ -1271,7 +1271,7 @@ void AArch64GenContext_t::fpr_r_r(IMLInstruction* imlInstruction)
+ 		{
+ 			fmov(regFprSReg, gpReg<WReg>(imlRegA));
+ 			// float to double
+-			fcvt(regFprDReg, regFprSReg);
++			dd(0x1E22C000u | (static_cast<uint32>(regFprSReg.getIdx()) << 5) | static_cast<uint32>(regFprDReg.getIdx()));
+ 		}
+ 		else if (imlRegA.GetRegFormat() == IMLRegFormat::I64)
+ 		{
+@@ -1387,14 +1387,14 @@ void AArch64GenContext_t::fpr_r(IMLInstruction* imlInstruction)
+ 	else if (imlInstruction->operation == PPCREC_IML_OP_FPR_ROUND_TO_SINGLE_PRECISION_BOTTOM)
+ 	{
+ 		// convert to 32bit single
+-		fcvt(regRSReg, regRDReg);
++		dd(0x1E624000u | (static_cast<uint32>(regRDReg.getIdx()) << 5) | static_cast<uint32>(regRSReg.getIdx()));
+ 		// convert back to 64bit double
+-		fcvt(regRDReg, regRSReg);
++		dd(0x1E22C000u | (static_cast<uint32>(regRSReg.getIdx()) << 5) | static_cast<uint32>(regRDReg.getIdx()));
+ 	}
+ 	else if (imlInstruction->operation == PPCREC_IML_OP_FPR_EXPAND_F32_TO_F64)
+ 	{
+ 		// convert bottom to 64bit double
+-		fcvt(regRDReg, regRSReg);
++		dd(0x1E22C000u | (static_cast<uint32>(regRSReg.getIdx()) << 5) | static_cast<uint32>(regRDReg.getIdx()));
+ 	}
+ 	else
+ 	{
 diff --git a/src/Cafe/HW/Espresso/Recompiler/PPCRecompilerIml.h b/src/Cafe/HW/Espresso/Recompiler/PPCRecompilerIml.h
 index bfb2aed..a0b9e7b 100644
 --- a/src/Cafe/HW/Espresso/Recompiler/PPCRecompilerIml.h
@@ -176,3 +225,346 @@ index 19ad257..541fd42 100644
  	cemu_assert_debug(scale == 0); // known GQR values always use a scale of 0 (1.0f)
  
  	if (type == Espresso::PSQ_LOAD_TYPE::TYPE_UNUSED1 ||
+diff --git a/src/Cafe/OS/libs/coreinit/coreinit_MEM.cpp b/src/Cafe/OS/libs/coreinit/coreinit_MEM.cpp
+index 83658f3..c3d9bf9 100644
+--- a/src/Cafe/OS/libs/coreinit/coreinit_MEM.cpp
++++ b/src/Cafe/OS/libs/coreinit/coreinit_MEM.cpp
+@@ -7,6 +7,64 @@
+ #include "Cafe/OS/libs/coreinit/coreinit_MEM_FrmHeap.h"
+ #include "coreinit_DynLoad.h"
+ 
++// ---------------------------------------------------------------------------
++// CemuFixer: low guest memory (0x00000000 - 0x00002000) guard
++// On a real Wii U (and on desktop Cemu, where this range is mapped as "MEM0")
++// a read through a NULL object pointer such as lwz r12,0x494(r3) with r3=0 does
++// not fault. If the host page behind guest address 0 is not readable (Android),
++// the same game code raises SIGSEGV. Make sure those pages exist.
++// ---------------------------------------------------------------------------
++#if defined(__linux__) || defined(__ANDROID__)
++#include <sys/mman.h>
++#include <unistd.h>
++#include <cerrno>
++
++static bool CemuFixer_IsHostByteReadable(const void* p)
++{
++	// write() copies from the user buffer and returns EFAULT instead of crashing
++	int fds[2];
++	if (pipe(fds) != 0)
++		return true; // cannot probe -> assume fine, do not touch anything
++	const ssize_t r = write(fds[1], p, 1);
++	const bool readable = !(r < 0 && errno == EFAULT);
++	close(fds[0]);
++	close(fds[1]);
++	return readable;
++}
++
++static void CemuFixer_EnsureLowGuestMemory()
++{
++	if (!memory_base)
++		return;
++	const size_t pageSize = (size_t)sysconf(_SC_PAGESIZE);
++	size_t lowSize = 0x2000;
++	if (lowSize % pageSize)
++		lowSize += pageSize - (lowSize % pageSize);
++
++	bool allReadable = true;
++	for (size_t off = 0; off < lowSize; off += pageSize)
++	{
++		if (!CemuFixer_IsHostByteReadable(memory_base + off))
++		{
++			allReadable = false;
++			break;
++		}
++	}
++	if (allReadable)
++	{
++		cemuLog_log(LogType::Force, "[LOWMEM] guest 0x0-0x{:x} already readable, nothing to do", lowSize);
++		return;
++	}
++	void* res = mmap(memory_base, lowSize, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED, -1, 0);
++	if (res == MAP_FAILED)
++		cemuLog_log(LogType::Force, "[LOWMEM] guest 0x0-0x{:x} NOT readable and mmap failed (errno={})", lowSize, errno);
++	else
++		cemuLog_log(LogType::Force, "[LOWMEM] guest 0x0-0x{:x} was unmapped on host -> mapped zeroed RW pages (host={})", lowSize, (void*)res);
++}
++#else
++static void CemuFixer_EnsureLowGuestMemory() {}
++#endif
++
+ // the system area is a block of memory that exists only in the emulator. It is used to simplify dynamic memory allocation for system data
+ // this partially overlaps with the system heap from coreinit_SysHeap.cpp -> Use SysHeap for everything
+ MPTR sysAreaAllocatorOffset = 0;
+@@ -456,6 +514,9 @@ namespace coreinit
+ 	MEMHeapBase* MEMDefaultHeap_Init(void* mem, uint32 size)
+ 	{
+ 		MEMHeapBase* heap = MEMCreateExpHeapEx(mem, size, 4);
++		cemuLog_log(LogType::Force,
++			"[MEM PTR HEAP-INIT] defaultHeap=0x{:08x} backing=0x{:08x} size=0x{:x}",
++			MEMPTR<void>(heap).GetMPTR(), memory_getVirtualOffsetFromPointer(mem), size);
+ 		gDefaultHeap = heap;
+ 		cemu_assert_debug(heap);
+ 		return heap;
+@@ -464,7 +525,13 @@ namespace coreinit
+ 	void* default_MEMAllocFromDefaultHeap(uint32 size)
+ 	{
+ 		void* mem = MEMAllocFromExpHeapEx(gDefaultHeap, size, 0x40);
++		cemuLog_log(LogType::Force,
++			"[MEM PTR ALLOC-DEFAULT] heap=0x{:08x} size=0x{:x} ptr=0x{:08x} host=0x{:x}",
++			MEMPTR<void>(gDefaultHeap).GetMPTR(), size,
++			MEMPTR<void>(mem).GetMPTR(), (uint64)(uintptr_t)mem);
+ 		cemuLog_logDebug(LogType::CoreinitMem, "MEMAllocFromDefaultHeap(0x{:08x}) Result: 0x{:08x}", size, memory_getVirtualOffsetFromPointer(mem));
++		if (!mem)
++			cemuLog_log(LogType::Force, "MEM ALLOC FAILED: MEMAllocFromDefaultHeap(size=0x{:x}) -> NULL", size);
+ 		return mem;
+ 	}
+ 
+@@ -478,7 +545,13 @@ namespace coreinit
+ 	void* default_MEMAllocFromDefaultHeapEx(uint32 size, sint32 alignment)
+ 	{
+ 		void* mem = MEMAllocFromExpHeapEx(gDefaultHeap, size, alignment);
++		cemuLog_log(LogType::Force,
++			"[MEM PTR ALLOC-DEFAULT-EX] heap=0x{:08x} size=0x{:x} alignment={} ptr=0x{:08x} host=0x{:x}",
++			MEMPTR<void>(gDefaultHeap).GetMPTR(), size, alignment,
++			MEMPTR<void>(mem).GetMPTR(), (uint64)(uintptr_t)mem);
+ 		cemuLog_logDebug(LogType::CoreinitMem, "MEMAllocFromDefaultHeap(0x{:08x},{}) Result: 0x{:08x}", size, alignment, memory_getVirtualOffsetFromPointer(mem));
++		if (!mem)
++			cemuLog_log(LogType::Force, "MEM ALLOC FAILED: MEMAllocFromDefaultHeapEx(size=0x{:x}, alignment={}) -> NULL", size, alignment);
+ 		return mem;
+ 	}
+ 
+@@ -492,6 +565,10 @@ namespace coreinit
+ 
+ 	void default_MEMFreeToDefaultHeap(void* mem)
+ 	{
++		cemuLog_log(LogType::Force,
++			"[MEM PTR FREE-DEFAULT] heap=0x{:08x} ptr=0x{:08x} host=0x{:x}",
++			MEMPTR<void>(gDefaultHeap).GetMPTR(),
++			MEMPTR<void>(mem).GetMPTR(), (uint64)(uintptr_t)mem);
+ 		MEMFreeToExpHeap(gDefaultHeap, mem);
+ 	}
+ 
+@@ -633,6 +710,7 @@ namespace coreinit
+ 	void InitializeMEM()
+ 	{
+         MEMResetToDefaultState();
++		CemuFixer_EnsureLowGuestMemory();
+ 
+ 		cafeExportRegister("coreinit", CoreInitDefaultHeap, LogType::CoreinitMem);
+ 
+@@ -659,4 +737,4 @@ namespace coreinit
+ 		cafeExportRegister("coreinit", MEMGetPrevListObject, LogType::CoreinitMem);
+ 	}
+ 
+-}
++}
+\ No newline at end of file
+diff --git a/src/Cafe/OS/libs/snd_user/snd_user.cpp b/src/Cafe/OS/libs/snd_user/snd_user.cpp
+index 58e8f4b..1f239e6 100644
+--- a/src/Cafe/OS/libs/snd_user/snd_user.cpp
++++ b/src/Cafe/OS/libs/snd_user/snd_user.cpp
+@@ -301,52 +301,119 @@ namespace snd_user
+ 			_MIXChannelResetRmt(channel, i);
+ 	}
+ 
+-	void _MIXControl_SetDevicePan(MixControl* control, int device_type, sint16 channels[])
++	void _MIXControl_SetDevicePan(
++		MixControl* control,
++		int device_type,
++		sint16 channels[])
+ 	{
+-		const auto pandiff = 0x7F - control->pan;
+-		const auto spandiff = 0x7F - control->span;
++		if (!control || !channels)
++		{
++			cemuLog_log(
++				LogType::Force,
++				"[MIX PAN] Invalid control/channels pointer"
++			);
++			return;
++		}
++
++		if (device_type != AX_DEV_TV &&
++			device_type != AX_DEV_DRC)
++		{
++			cemuLog_log(
++				LogType::Force,
++				"[MIX PAN] Invalid device type: {}",
++				device_type
++			);
++			return;
++		}
++
++		// PowerPC values are signed 16-bit.
++		// Clamp them before using them as array indexes.
++		const uint32 pan =
++			control->pan < 0 ? 0 :
++			control->pan > 0x7F ? 0x7F :
++			static_cast<uint32>(control->pan);
++
++		const uint32 span =
++			control->span < 0 ? 0 :
++			control->span > 0x7F ? 0x7F :
++			static_cast<uint32>(control->span);
++
++		const uint32 pandiff = 0x7F - pan;
++		const uint32 spandiff = 0x7F - span;
+ 
+ 		if (device_type == AX_DEV_TV)
+ 		{
+-			const uint32 sound_mode = g_snd_user_data.device_info.tv_sound_mode;
++			memset(
++				channels,
++				0,
++				sizeof(sint16) * AX_TV_CHANNEL_COUNT
++			);
++
++			const uint32 sound_mode =
++				g_snd_user_data.device_info.tv_sound_mode;
++
+ 			if (sound_mode == 3)
+ 			{
+-				channels[0] = g_snd_user_data.pan_values_low[control->pan];
+-				channels[1] = g_snd_user_data.pan_values_low[pandiff];
+-				channels[2] = g_snd_user_data.pan_values_high[pandiff];
+-				channels[3] = g_snd_user_data.pan_values_high[control->pan];
+-				channels[4] = g_snd_user_data.pan_values_high[spandiff];
+-				channels[5] = g_snd_user_data.pan_values_high[control->span];
++				channels[0] =
++					g_snd_user_data.pan_values_low[pan];
++
++				channels[1] =
++					g_snd_user_data.pan_values_low[pandiff];
++
++				channels[2] =
++					g_snd_user_data.pan_values_high[pandiff];
++
++				channels[3] =
++					g_snd_user_data.pan_values_high[pan];
++
++				channels[4] =
++					g_snd_user_data.pan_values_high[spandiff];
++
++				channels[5] =
++					g_snd_user_data.pan_values_high[span];
+ 			}
+ 			else if (sound_mode != 4)
+ 			{
+-				channels[0] = g_snd_user_data.pan_values[control->pan];
+-				channels[1] = g_snd_user_data.pan_values[pandiff];
++				channels[0] =
++					g_snd_user_data.pan_values[pan];
++
++				channels[1] =
++					g_snd_user_data.pan_values[pandiff];
++
+ 				channels[2] = 0;
+ 				channels[3] = 0;
+-				channels[4] = g_snd_user_data.pan_values[spandiff];
+-				channels[5] = g_snd_user_data.pan_values[control->span];
++
++				channels[4] =
++					g_snd_user_data.pan_values[spandiff];
++
++				channels[5] =
++					g_snd_user_data.pan_values[span];
+ 			}
+ 			else
+ 			{
+-				uint32 pan = 0x7F;
+-				if (((uint32)control->pan >> 1) < 0x7F)
+-					pan = (uint32)control->pan >> 1;
++				uint32 p = pan >> 1;
+ 
+-				channels[0] = g_snd_user_data.pan_values[pan] + g_snd_user_data.pan_values[spandiff];
++				if (p >= 0x7F)
++					p = 0x7F;
+ 
+-				uint32 span = 0x7F;
+-				if (((uint32)pandiff >> 1) < 0x7E)
+-					span = (uint32)pandiff >> 1;
++				channels[0] =
++					g_snd_user_data.pan_values[p] +
++					g_snd_user_data.pan_values[spandiff];
+ 
+-				channels[1] = g_snd_user_data.pan_values[span] + g_snd_user_data.pan_values[spandiff];
++				uint32 s = pandiff >> 1;
+ 
+-				// TODO
++				if (s >= 0x7E)
++					s = 0x7F;
++
++				channels[1] =
++					g_snd_user_data.pan_values[s] +
++					g_snd_user_data.pan_values[spandiff];
+ 			}
+ 		}
+ 		else if (device_type == AX_DEV_DRC)
+ 		{
+-			// TODO
++			// Preserve existing DRC implementation status.
++			// DRC channel mapping still needs implementation.
+ 		}
+ 	}
+ 
+@@ -766,10 +833,59 @@ namespace snd_user
+ 		cemu_assert_debug(voice);
+ 		cemu_assert_debug(control);
+ 
+-		AXVoiceBegin(voice);
++		if (!voice || !control)
++		{
++			cemuLog_log(
++				LogType::Force,
++				"[MIX INIT] Null voice/control pointer"
++			);
++			return;
++		}
++
++		if (!g_snd_user_data.initialized ||
++			g_snd_user_data.max_voices <= 0)
++		{
++			cemuLog_log(
++				LogType::Force,
++				"[MIX INIT] Sound system not initialized"
++			);
++			return;
++		}
++
++		if (device_type >= AX_DEV_COUNT)
++			return;
++
++		if ((device_type == AX_DEV_TV && index != 0) ||
++			(device_type == AX_DEV_DRC && index >= AX_MAX_NUM_DRC) ||
++			(device_type == AX_DEV_RMT && index >= AX_MAX_NUM_RMT))
++		{
++			cemuLog_log(
++				LogType::Force,
++				"[MIX INIT] Invalid device index: {} / {}",
++				device_type,
++				index
++			);
++			return;
++		}
+ 
+ 		const uint32 voice_index = voice->index;
+-		auto& channel = g_snd_user_data.mix_channel[voice_index];
++
++		if (voice_index >=
++			static_cast<uint32>(g_snd_user_data.max_voices))
++		{
++			cemuLog_log(
++				LogType::Force,
++				"[MIX INIT] Invalid voice index: {} max={}",
++				voice_index,
++				g_snd_user_data.max_voices
++			);
++			return;
++		}
++
++		AXVoiceBegin(voice);
++
++		auto& channel =
++			g_snd_user_data.mix_channel[voice_index];
+ 
+ 		channel.voice = voice;
+ 
