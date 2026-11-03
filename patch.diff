@@ -200,7 +200,7 @@ index 2555101..0d1c6b9 100644
  	else
  	{
 diff --git a/src/Cafe/HW/Espresso/Recompiler/PPCRecompiler.cpp b/src/Cafe/HW/Espresso/Recompiler/PPCRecompiler.cpp
-index 6125c7d..084d78b 100644
+index 6125c7d..933b46d 100644
 --- a/src/Cafe/HW/Espresso/Recompiler/PPCRecompiler.cpp
 +++ b/src/Cafe/HW/Espresso/Recompiler/PPCRecompiler.cpp
 @@ -20,6 +20,9 @@
@@ -249,7 +249,15 @@ index 6125c7d..084d78b 100644
  	if (range.startAddress >= PPC_REC_CODE_AREA_END)
  	{
  		cemuLog_log(LogType::Force, "Attempting to recompile function outside of allowed code area");
-@@ -451,9 +476,97 @@ void PPCRecompiler_recompileAtAddress(uint32 address)
+@@ -416,6 +441,7 @@ bool PPCRecompiler_makeRecompiledFunctionActive(uint32 initialEntryPoint, PPCFun
+ void PPCRecompiler_recompileAtAddress(uint32 address)
+ {
+ 	cemu_assert_debug(ppcRecompilerInstanceData->ppcRecompilerDirectJumpTable[address / 4] == PPCRecompiler_leaveRecompilerCode_visited);
++	cemuLog_log(LogType::Force, "[RECOMPILE] addr=0x{:08X}", address);
+ 
+ 	// get size
+ 	PPCFunctionBoundaryTracker funcBoundaries;
+@@ -451,9 +477,97 @@ void PPCRecompiler_recompileAtAddress(uint32 address)
  std::thread s_threadRecompiler;
  std::atomic_bool s_recompilerThreadStopSignal{false};
  
@@ -347,7 +355,7 @@ index 6125c7d..084d78b 100644
  #if PPCREC_FORCE_SYNCHRONOUS_COMPILATION
  	return;
  #endif
-@@ -462,7 +575,13 @@ void PPCRecompiler_thread()
+@@ -462,7 +576,13 @@ void PPCRecompiler_thread()
  	{
          if(s_recompilerThreadStopSignal)
              return;
@@ -750,7 +758,7 @@ index 83658f3..818e8a6 100644
  		cafeExportRegister("coreinit", CoreInitDefaultHeap, LogType::CoreinitMem);
  
 diff --git a/src/Cafe/OS/libs/coreinit/coreinit_Thread.cpp b/src/Cafe/OS/libs/coreinit/coreinit_Thread.cpp
-index 7c7571f..cdf27c3 100644
+index 7c7571f..4b21241 100644
 --- a/src/Cafe/OS/libs/coreinit/coreinit_Thread.cpp
 +++ b/src/Cafe/OS/libs/coreinit/coreinit_Thread.cpp
 @@ -12,6 +12,7 @@
@@ -761,7 +769,7 @@ index 7c7571f..cdf27c3 100644
  
  #include "util/helpers/helpers.h"
  
-@@ -1390,8 +1391,16 @@ namespace coreinit
+@@ -1390,12 +1391,20 @@ namespace coreinit
  		__OSLoadThread(hostThread->m_thread, hCPU, hostThread->selectedCore);
  		__OSThreadStartTimeslice(hostThread->m_thread, &hostThread->ppcInstance);
  		__OSUnlockScheduler(); // lock is always held when switching to a fiber, so we need to unlock it here
@@ -778,6 +786,11 @@ index 7c7571f..cdf27c3 100644
  			if (hCPU->remainingCycles > 0)
  			{
  				// try to enter recompiler immediately
+-				PPCRecompiler_attemptEnterWithoutRecompile(hCPU, hCPU->instructionPointer);
++				PPCRecompiler_attemptEnter(hCPU, hCPU->instructionPointer);
+ 				// keep executing as long as there are cycles left
+ 				while ((--hCPU->remainingCycles) >= 0)
+ 					PPCInterpreterSlim_executeInstruction(hCPU);
 diff --git a/src/Cafe/OS/libs/snd_core/ax_out.cpp b/src/Cafe/OS/libs/snd_core/ax_out.cpp
 index 6cb1599..cb8ae31 100644
 --- a/src/Cafe/OS/libs/snd_core/ax_out.cpp
