@@ -96,7 +96,7 @@ index 547472a..666fb52 100644
  		{
  			hCPU->global->tb++;
 diff --git a/src/Cafe/HW/Espresso/Recompiler/PPCRecompiler.cpp b/src/Cafe/HW/Espresso/Recompiler/PPCRecompiler.cpp
-index 6125c7d..c4ce850 100644
+index 6125c7d..0d16d18 100644
 --- a/src/Cafe/HW/Espresso/Recompiler/PPCRecompiler.cpp
 +++ b/src/Cafe/HW/Espresso/Recompiler/PPCRecompiler.cpp
 @@ -20,6 +20,8 @@
@@ -108,17 +108,20 @@ index 6125c7d..c4ce850 100644
  
  #define PPCREC_FORCE_SYNCHRONOUS_COMPILATION	0 // if 1, then function recompilation will block and execute on the thread that called PPCRecompiler_visitAddressNoBlock
  #define PPCREC_LOG_RECOMPILATION_RESULTS		0
-@@ -166,6 +168,9 @@ bool PPCRecompiler_ApplyIMLPasses(ppcImlGenContext_t& ppcImlGenContext);
+@@ -166,6 +168,12 @@ bool PPCRecompiler_ApplyIMLPasses(ppcImlGenContext_t& ppcImlGenContext);
  
  PPCRecFunction_t* PPCRecompiler_recompileFunction(PPCFunctionBoundaryTracker::PPCRange_t range, std::set<uint32>& entryAddresses, std::vector<std::pair<MPTR, uint32>>& entryPointsOut, PPCFunctionBoundaryTracker& boundaryTracker)
  {
++#if CEMU_THREAD_WATCHDOG
++    CemuWatchdog::Touch(CemuWatchdog::Recompiler, CemuWatchdog::Compile);
++#endif
 +#if CEMU_PROFILING
 +    CemuProfiling::ScopedTimer profilingTimer(CemuProfiling::Recompiler());
 +#endif
  	if (range.startAddress >= PPC_REC_CODE_AREA_END)
  	{
  		cemuLog_log(LogType::Force, "Attempting to recompile function outside of allowed code area");
-@@ -451,9 +456,68 @@ void PPCRecompiler_recompileAtAddress(uint32 address)
+@@ -451,9 +459,68 @@ void PPCRecompiler_recompileAtAddress(uint32 address)
  std::thread s_threadRecompiler;
  std::atomic_bool s_recompilerThreadStopSignal{false};
  
@@ -187,10 +190,15 @@ index 6125c7d..c4ce850 100644
  #if PPCREC_FORCE_SYNCHRONOUS_COMPILATION
  	return;
  #endif
-@@ -463,6 +527,9 @@ void PPCRecompiler_thread()
+@@ -462,7 +529,13 @@ void PPCRecompiler_thread()
+ 	{
          if(s_recompilerThreadStopSignal)
              return;
- 		std::this_thread::sleep_for(std::chrono::milliseconds(10));
+-		std::this_thread::sleep_for(std::chrono::milliseconds(10));
++		#if CEMU_THREAD_WATCHDOG
++        CemuWatchdog::Touch(CemuWatchdog::Recompiler, CemuWatchdog::Sleep);
++#endif
++        std::this_thread::sleep_for(std::chrono::milliseconds(10));
 +#if CEMU_PROFILING
 +        PPCRecompiler_profileReportIfDue();
 +#endif
@@ -198,7 +206,7 @@ index 6125c7d..c4ce850 100644
  		// 1) take address from queue
  		// 2) check if address is still marked as visited
 diff --git a/src/Cafe/HW/Latte/Renderer/Vulkan/VulkanRenderer.cpp b/src/Cafe/HW/Latte/Renderer/Vulkan/VulkanRenderer.cpp
-index f6d7228..5fb6c90 100644
+index f6d7228..93c328c 100644
 --- a/src/Cafe/HW/Latte/Renderer/Vulkan/VulkanRenderer.cpp
 +++ b/src/Cafe/HW/Latte/Renderer/Vulkan/VulkanRenderer.cpp
 @@ -2180,7 +2180,31 @@ void VulkanRenderer::WaitForNextFinishedCommandBuffer()
@@ -234,6 +242,37 @@ index f6d7228..5fb6c90 100644
  	if (result == VK_TIMEOUT)
  	{
  		cemuLog_log(LogType::Force, "vkWaitForFences: Returned VK_TIMEOUT on infinite fence");
+@@ -2195,6 +2219,9 @@ void VulkanRenderer::WaitForNextFinishedCommandBuffer()
+ 
+ void VulkanRenderer::SubmitCommandBuffer(VkSemaphore signalSemaphore, VkSemaphore waitSemaphore)
+ {
++#if CEMU_THREAD_WATCHDOG
++    CemuWatchdog::Touch(CemuWatchdog::Renderer, CemuWatchdog::Loop);
++#endif
+ 	draw_endRenderPass();
+ 
+ 	occlusionQuery_notifyEndCommandBuffer();
+@@ -3072,6 +3099,9 @@ bool VulkanRenderer::UpdateSwapchainProperties(bool mainWindow)
+ 
+ void VulkanRenderer::SwapBuffer(bool mainWindow)
+ {
++#if CEMU_THREAD_WATCHDOG
++    CemuWatchdog::Touch(CemuWatchdog::Renderer, CemuWatchdog::Present);
++#endif
+ 	if(!AcquireNextSwapchainImage(mainWindow))
+ 		return;
+ 
+@@ -3127,6 +3157,10 @@ void VulkanRenderer::SwapBuffer(bool mainWindow)
+ 	}
+ 
+ 	VkResult result = vkQueuePresentKHR(m_presentQueue, &presentInfo);
++
++#if CEMU_THREAD_WATCHDOG
++    CemuWatchdog::Touch(CemuWatchdog::Renderer, CemuWatchdog::Loop);
++#endif
+ 	if (result < 0 && result != VK_ERROR_OUT_OF_DATE_KHR
+ #if BOOST_PLAT_ANDROID
+ 		&& result != VK_ERROR_SURFACE_LOST_KHR
 diff --git a/src/Cafe/HW/Latte/Renderer/Vulkan/VulkanRendererCore.cpp b/src/Cafe/HW/Latte/Renderer/Vulkan/VulkanRendererCore.cpp
 index a681418..b4e009b 100644
 --- a/src/Cafe/HW/Latte/Renderer/Vulkan/VulkanRendererCore.cpp
