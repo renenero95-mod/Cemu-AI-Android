@@ -95,140 +95,18 @@ index e76a53f..2bf0a5c 100644
  			return false;
  		}
 diff --git a/src/Cafe/HW/Espresso/Recompiler/PPCRecompilerImlGenFPU.cpp b/src/Cafe/HW/Espresso/Recompiler/PPCRecompilerImlGenFPU.cpp
-index 19ad257..d400b48 100644
+index 19ad257..4b58c3a 100644
 --- a/src/Cafe/HW/Espresso/Recompiler/PPCRecompilerImlGenFPU.cpp
 +++ b/src/Cafe/HW/Espresso/Recompiler/PPCRecompilerImlGenFPU.cpp
-@@ -812,6 +812,130 @@ void PPCRecompilerImlGen_EmitPSQLoadCase(ppcImlGenContext_t* ppcImlGenContext, s
- }
+@@ -990,7 +990,7 @@ bool PPCRecompilerImlGen_PSQ_ST(ppcImlGenContext_t* ppcImlGenContext, uint32 opc
+ 	}
  
- // PSQ_L and PSQ_LU
-+// PSQ_LX - Paired Single Quantized Load Indexed
-+bool PPCRecompilerImlGen_PSQ_LX(ppcImlGenContext_t* ppcImlGenContext, uint32 opcode)
-+{
-+    sint32 frD, rA, rB;
-+    PPC_OPC_TEMPL_X(opcode, frD, rA, rB);
-+
-+    sint32 gqrIndex = (opcode >> 7) & 0x7;
-+    bool readPS1 = ((opcode >> 10) & 1) == 0;
-+
-+    IMLReg gprEA = PPCRecompilerImlGen_loadRegister(ppcImlGenContext, PPCREC_NAME_TEMPORARY + 3);
-+    IMLReg gprB = PPCRecompilerImlGen_loadRegister(ppcImlGenContext, PPCREC_NAME_R0 + rB);
-+
-+    if (rA != 0)
-+    {
-+        IMLReg gprA = PPCRecompilerImlGen_loadRegister(ppcImlGenContext, PPCREC_NAME_R0 + rA);
-+        ppcImlGenContext->emitInst().make_r_r_r(PPCREC_IML_OP_ADD, gprEA, gprA, gprB);
-+    }
-+    else
-+    {
-+        ppcImlGenContext->emitInst().make_r_r(PPCREC_IML_OP_ASSIGN, gprEA, gprB);
-+    }
-+
-+    DefinePS0(fprDPS0, frD);
-+    DefinePS1(fprDPS1, frD);
-+
-+    if (!readPS1)
-+    {
-+        ppcImlGenContext->emitInst().make_fpr_r(PPCREC_IML_OP_FPR_LOAD_ONE, fprDPS1);
-+    }
-+
-+    uint32 knownGQRValue = 0;
-+
-+    if (!PPCRecompiler_isUGQRValueKnown(ppcImlGenContext, gqrIndex, knownGQRValue))
-+    {
-+        IMLReg gqrRegister = PPCRecompilerImlGen_loadRegister(ppcImlGenContext, PPCREC_NAME_SPR0 + SPR_UGQR0 + gqrIndex);
-+        IMLReg loadTypeReg = PPCRecompilerImlGen_loadRegister(ppcImlGenContext, PPCREC_NAME_TEMPORARY + 0);
-+        
-+        ppcImlGenContext->emitInst().make_r_r_s32(PPCREC_IML_OP_RIGHT_SHIFT_U, loadTypeReg, gqrRegister, 16);
-+        ppcImlGenContext->emitInst().make_r_r_s32(PPCREC_IML_OP_AND, loadTypeReg, loadTypeReg, 0x7);
-+
-+        IMLSegment* caseSegment[6];
-+        sint32 compareValues[5] = { 0, 4, 5, 6, 7 };
-+
-+        PPCIMLGen_CreateSegmentBranchedPathMultiple(*ppcImlGenContext, *ppcImlGenContext->currentBasicBlock, caseSegment, loadTypeReg, compareValues, 5, 0);
-+
-+        for (sint32 i = 0; i < 5; i++)
-+        {
-+            IMLRedirectInstOutput outputToCase(ppcImlGenContext, caseSegment[i]);
-+            PPCRecompilerImlGen_EmitPSQLoadCase(ppcImlGenContext, gqrIndex, static_cast<Espresso::PSQ_LOAD_TYPE>(compareValues[i]), readPS1, gprEA, 0, fprDPS0, fprDPS1);
-+            caseSegment[i]->AppendInstruction()->make_jump();
-+        }
-+        return true;
-+    }
-+
-+    Espresso::PSQ_LOAD_TYPE type = static_cast<Espresso::PSQ_LOAD_TYPE>((knownGQRValue >> 16) & 0x7);
-+    sint32 scale = (knownGQRValue >> 24) & 0x3F;
-+    cemu_assert_debug(scale == 0);
-+    if (scale != 0) return false;
-+
-+    if (type == Espresso::PSQ_LOAD_TYPE::TYPE_UNUSED1 || type == Espresso::PSQ_LOAD_TYPE::TYPE_UNUSED2 || type == Espresso::PSQ_LOAD_TYPE::TYPE_UNUSED3) return false;
-+
-+    PPCRecompilerImlGen_EmitPSQLoadCase(ppcImlGenContext, gqrIndex, type, readPS1, gprEA, 0, fprDPS0, fprDPS1);
-+    return true;
-+}
-+
-+// PSQ_STX - Paired Single Quantized Store Indexed
-+bool PPCRecompilerImlGen_PSQ_STX(ppcImlGenContext_t* ppcImlGenContext, uint32 opcode)
-+{
-+    sint32 frD, rA, rB;
-+    PPC_OPC_TEMPL_X(opcode, frD, rA, rB);
-+
-+    sint32 gqrIndex = (opcode >> 7) & 0x7;
-+    bool storePS1 = ((opcode >> 10) & 1) == 0;
-+
-+    IMLReg gprEA = PPCRecompilerImlGen_loadRegister(ppcImlGenContext, PPCREC_NAME_TEMPORARY + 3);
-+    IMLReg gprB = PPCRecompilerImlGen_loadRegister(ppcImlGenContext, PPCREC_NAME_R0 + rB);
-+
-+    if (rA != 0)
-+    {
-+        IMLReg gprA = PPCRecompilerImlGen_loadRegister(ppcImlGenContext, PPCREC_NAME_R0 + rA);
-+        ppcImlGenContext->emitInst().make_r_r_r(PPCREC_IML_OP_ADD, gprEA, gprA, gprB);
-+    }
-+    else
-+    {
-+        ppcImlGenContext->emitInst().make_r_r(PPCREC_IML_OP_ASSIGN, gprEA, gprB);
-+    }
-+
-+    DefinePS0(fprDPS0, frD);
-+    IMLReg fprDPS1 = storePS1 ? _GetFPRRegPS1(ppcImlGenContext, frD) : IMLREG_INVALID;
-+
-+    uint32 gqrValue = 0;
-+
-+    if (!PPCRecompiler_isUGQRValueKnown(ppcImlGenContext, gqrIndex, gqrValue))
-+    {
-+        IMLReg gqrRegister = PPCRecompilerImlGen_loadRegister(ppcImlGenContext, PPCREC_NAME_SPR0 + SPR_UGQR0 + gqrIndex);
-+        IMLReg storeTypeReg = PPCRecompilerImlGen_loadRegister(ppcImlGenContext, PPCREC_NAME_TEMPORARY + 0);
-+
-+        ppcImlGenContext->emitInst().make_r_r_s32(PPCREC_IML_OP_AND, storeTypeReg, gqrRegister, 0x7);
-+
-+        IMLSegment* caseSegment[5];
-+        sint32 compareValues[5] = { 0, 4, 5, 6, 7 };
-+
-+        PPCIMLGen_CreateSegmentBranchedPathMultiple(*ppcImlGenContext, *ppcImlGenContext->currentBasicBlock, caseSegment, storeTypeReg, compareValues, 5, 0);
-+
-+        for (sint32 i = 0; i < 5; i++)
-+        {
-+            IMLRedirectInstOutput outputToCase(ppcImlGenContext, caseSegment[i]);
-+            PPCRecompilerImlGen_EmitPSQStoreCase(ppcImlGenContext, gqrIndex, static_cast<Espresso::PSQ_LOAD_TYPE>(compareValues[i]), storePS1, gprEA, 0, fprDPS0, fprDPS1);
-+            ppcImlGenContext->emitInst().make_jump();
-+        }
-+        return true;
-+    }
-+
-+    Espresso::PSQ_LOAD_TYPE type = static_cast<Espresso::PSQ_LOAD_TYPE>((gqrValue >> 0) & 0x7);
-+    sint32 scale = (gqrValue >> 8) & 0x3F;
-+    cemu_assert_debug(scale == 0);
-+    if (scale != 0) return false;
-+
-+    if (type == Espresso::PSQ_LOAD_TYPE::TYPE_UNUSED1 || type == Espresso::PSQ_LOAD_TYPE::TYPE_UNUSED2 || type == Espresso::PSQ_LOAD_TYPE::TYPE_UNUSED3) return false;
-+
-+    PPCRecompilerImlGen_EmitPSQStoreCase(ppcImlGenContext, gqrIndex, type, storePS1, gprEA, 0, fprDPS0, fprDPS1);
-+    return true;
-+}
-+
- bool PPCRecompilerImlGen_PSQ_L(ppcImlGenContext_t* ppcImlGenContext, uint32 opcode, bool withUpdate)
- {
- 	int rA, frD;
+ 	Espresso::PSQ_LOAD_TYPE type = static_cast<Espresso::PSQ_LOAD_TYPE>((gqrValue >> 0) & 0x7);
+-	sint32 scale = (gqrValue >> 24) & 0x3F;
++	sint32 scale = (gqrValue >> 8) & 0x3F;
+ 	cemu_assert_debug(scale == 0); // known GQR values always use a scale of 0 (1.0f)
+ 
+ 	if (type == Espresso::PSQ_LOAD_TYPE::TYPE_UNUSED1 ||
 diff --git a/src/Cafe/OS/libs/coreinit/coreinit_MEM.cpp b/src/Cafe/OS/libs/coreinit/coreinit_MEM.cpp
 index 83658f3..c3d9bf9 100644
 --- a/src/Cafe/OS/libs/coreinit/coreinit_MEM.cpp
