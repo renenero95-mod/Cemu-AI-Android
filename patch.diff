@@ -143,7 +143,7 @@ index 2555101..1d989bf 100644
  	else
  	{
 diff --git a/src/Cafe/HW/Espresso/Recompiler/PPCRecompiler.cpp b/src/Cafe/HW/Espresso/Recompiler/PPCRecompiler.cpp
-index 6125c7d..7279099 100644
+index 6125c7d..9e02df4 100644
 --- a/src/Cafe/HW/Espresso/Recompiler/PPCRecompiler.cpp
 +++ b/src/Cafe/HW/Espresso/Recompiler/PPCRecompiler.cpp
 @@ -20,6 +20,7 @@
@@ -164,7 +164,7 @@ index 6125c7d..7279099 100644
  	if (range.startAddress >= PPC_REC_CODE_AREA_END)
  	{
  		cemuLog_log(LogType::Force, "Attempting to recompile function outside of allowed code area");
-@@ -451,6 +455,62 @@ void PPCRecompiler_recompileAtAddress(uint32 address)
+@@ -451,6 +455,71 @@ void PPCRecompiler_recompileAtAddress(uint32 address)
  std::thread s_threadRecompiler;
  std::atomic_bool s_recompilerThreadStopSignal{false};
  
@@ -179,6 +179,15 @@ index 6125c7d..7279099 100644
 +    if (seconds < 5.0)
 +        return;
 +    lastReport = now;
++
++    #if CEMU_PROFILING
++    cemuLog_log(LogType::Force, "[PROFILE ID] reporter reached; CEMU_PROFILING={}", CEMU_PROFILING);
++    cemuLog_log(LogType::Force, "[PROFILE ID] addresses: interpreter={} drawcalls={} submit={} present={}",
++        (uint64_t)&CemuProfiling::Interpreter(),
++        (uint64_t)&CemuProfiling::Drawcalls(),
++        (uint64_t)&CemuProfiling::VulkanSubmit(),
++        (uint64_t)&CemuProfiling::VulkanPresent());
++#endif
 +
 +    const auto itp = Interpreter().TakeSnapshot();
 +    const auto hle = HLE().TakeSnapshot();
@@ -227,7 +236,7 @@ index 6125c7d..7279099 100644
  void PPCRecompiler_thread()
  {
  	SetThreadName("PPCRecompiler");
-@@ -463,6 +523,9 @@ void PPCRecompiler_thread()
+@@ -463,6 +532,9 @@ void PPCRecompiler_thread()
          if(s_recompilerThreadStopSignal)
              return;
  		std::this_thread::sleep_for(std::chrono::milliseconds(10));
