@@ -1959,8 +1959,10 @@ index 58e8f4b..1f239e6 100644
  		channel.voice = voice;
  
 diff --git a/src/util/CemuProfiling.h b/src/util/CemuProfiling.h
+new file mode 100644
+index 0000000..1111111
 index e69de29..1d115a4 100644
---- a/src/util/CemuProfiling.h
+--- /dev/null
 +++ b/src/util/CemuProfiling.h
 @@ -0,0 +1,96 @@
 +#pragma once
@@ -2059,3 +2061,4 @@ index e69de29..1d115a4 100644
 +    }
 +}
 +#endif
+
