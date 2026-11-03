@@ -96,7 +96,7 @@ index 547472a..666fb52 100644
  		{
  			hCPU->global->tb++;
 diff --git a/src/Cafe/HW/Espresso/Recompiler/PPCRecompiler.cpp b/src/Cafe/HW/Espresso/Recompiler/PPCRecompiler.cpp
-index 6125c7d..dcd59b1 100644
+index 6125c7d..c4ce850 100644
 --- a/src/Cafe/HW/Espresso/Recompiler/PPCRecompiler.cpp
 +++ b/src/Cafe/HW/Espresso/Recompiler/PPCRecompiler.cpp
 @@ -20,6 +20,8 @@
@@ -118,7 +118,7 @@ index 6125c7d..dcd59b1 100644
  	if (range.startAddress >= PPC_REC_CODE_AREA_END)
  	{
  		cemuLog_log(LogType::Force, "Attempting to recompile function outside of allowed code area");
-@@ -451,6 +456,62 @@ void PPCRecompiler_recompileAtAddress(uint32 address)
+@@ -451,9 +456,68 @@ void PPCRecompiler_recompileAtAddress(uint32 address)
  std::thread s_threadRecompiler;
  std::atomic_bool s_recompilerThreadStopSignal{false};
  
@@ -181,7 +181,13 @@ index 6125c7d..dcd59b1 100644
  void PPCRecompiler_thread()
  {
  	SetThreadName("PPCRecompiler");
-@@ -463,6 +524,9 @@ void PPCRecompiler_thread()
++    cemuLog_log(LogType::Force, "[WATCHDOG CALLSITE] PPCRecompiler_thread reached");
++    const bool watchdogStarted = CemuWatchdog::Start();
++    cemuLog_log(LogType::Force, "[WATCHDOG CALLSITE] Start returned {}", watchdogStarted);
+ #if PPCREC_FORCE_SYNCHRONOUS_COMPILATION
+ 	return;
+ #endif
+@@ -463,6 +527,9 @@ void PPCRecompiler_thread()
          if(s_recompilerThreadStopSignal)
              return;
  		std::this_thread::sleep_for(std::chrono::milliseconds(10));
@@ -1348,10 +1354,10 @@ index e69de29..1d115a4 100644
 diff --git a/src/util/CemuThreadWatchdog.h b/src/util/CemuThreadWatchdog.h
 new file mode 100644
 index 0000000..1111111
-index e69de29..6470702 100644
+index e69de29..59c8471 100644
 --- /dev/null
 +++ b/src/util/CemuThreadWatchdog.h
-@@ -0,0 +1,110 @@
+@@ -0,0 +1,119 @@
 +#pragma once
 +
 +#ifndef CEMU_THREAD_WATCHDOG
@@ -1364,6 +1370,7 @@ index e69de29..6470702 100644
 +#include <chrono>
 +#include <cstdint>
 +#include <thread>
++#include <exception>
 +
 +namespace CemuWatchdog
 +{
@@ -1414,50 +1421,58 @@ index e69de29..6470702 100644
 +        s.ticks.fetch_add(1, std::memory_order_relaxed);
 +    }
 +
-+    inline void Start()
++    inline bool Start()
 +    {
 +        static std::atomic<bool> started{ false };
 +
 +        if (started.exchange(true, std::memory_order_relaxed))
-+            return;
++            return false;
++
++        cemuLog_log(LogType::Force, "[WATCHDOG START] Start() invoked");
 +
 +        const uint64_t now = NowNs();
 +
 +        for (uint32_t i = 0; i < 3; ++i)
++        {
 +            GetState(static_cast<ThreadId>(i)).lastNs.store(
 +                now, std::memory_order_relaxed);
++        }
 +
-+        std::thread([]()
++        try
 +        {
-+            for (;;)
++            std::thread([]()
 +            {
-+                std::this_thread::sleep_for(std::chrono::seconds(2));
++                cemuLog_log(LogType::Force, "[WATCHDOG THREAD] worker started");
++                uint64_t reportCount = 0;
 +
-+                const uint64_t now = NowNs();
-+
-+                for (uint32_t i = 0; i < 3; ++i)
++                for (;;)
 +                {
-+                    const State& s =
-+                        GetState(static_cast<ThreadId>(i));
++                    std::this_thread::sleep_for(std::chrono::seconds(2));
++                    const uint64_t now = NowNs();
++                    
++                    cemuLog_log(LogType::Force, "[WATCHDOG ALIVE] report={}", ++reportCount);
 +
-+                    const uint64_t last =
-+                        s.lastNs.load(std::memory_order_relaxed);
++                    for (uint32_t i = 0; i < 3; ++i)
++                    {
++                        const State& s = GetState(static_cast<ThreadId>(i));
++                        const uint64_t last = s.lastNs.load(std::memory_order_relaxed);
++                        const uint64_t ageMs = last == 0 ? 0 : (now - last) / 1000000ULL;
++                        const uint64_t ticks = s.ticks.load(std::memory_order_relaxed);
++                        const uint32_t phase = s.phase.load(std::memory_order_relaxed);
 +
-+                    const uint64_t ageMs =
-+                        last == 0 ? 0 : (now - last) / 1000000ULL;
-+
-+                    const uint64_t ticks =
-+                        s.ticks.load(std::memory_order_relaxed);
-+
-+                    const uint32_t phase =
-+                        s.phase.load(std::memory_order_relaxed);
-+
-+                    cemuLog_log(LogType::Force,
-+                        "[THREAD WATCH] id={} phase={} age={}ms ticks={}",
-+                        i, phase, ageMs, ticks);
++                        cemuLog_log(LogType::Force, "[THREAD WATCH] id={} phase={} age={}ms ticks={}", i, phase, ageMs, ticks);
++                    }
 +                }
-+            }
-+        }).detach();
++            }).detach();
++
++            cemuLog_log(LogType::Force, "[WATCHDOG START] worker thread created");
++            return true;
++        }
++        catch (const std::exception& e)
++        {
++            cemuLog_log(LogType::Force, "[WATCHDOG ERROR] thread creation failed: {}", e.what());
++            return false;
++        }
 +    }
 +}
 +
