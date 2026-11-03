@@ -1,12 +1,12 @@
 diff --git a/src/Cafe/HW/Espresso/Interpreter/PPCInterpreterHLE.cpp b/src/Cafe/HW/Espresso/Interpreter/PPCInterpreterHLE.cpp
-index cf7ba19..d045379 100644
+index cf7ba19..f402446 100644
 --- a/src/Cafe/HW/Espresso/Interpreter/PPCInterpreterHLE.cpp
 +++ b/src/Cafe/HW/Espresso/Interpreter/PPCInterpreterHLE.cpp
 @@ -1,6 +1,7 @@
  #include "../PPCState.h"
  #include "PPCInterpreterInternal.h"
  #include "PPCInterpreterHelper.h"
-+#include "util/Profiling/CemuProfiling.h"
++#include "util/CemuProfiling.h"
  
  std::unordered_set<std::string> s_unsupportedHLECalls;
  
@@ -21,13 +21,13 @@ index cf7ba19..d045379 100644
  	if (hleFuncId == 0xFFD0) [[unlikely]]
  	{
 diff --git a/src/Cafe/HW/Espresso/Interpreter/PPCInterpreterImpl.cpp b/src/Cafe/HW/Espresso/Interpreter/PPCInterpreterImpl.cpp
-index 547472a..0d72d82 100644
+index 547472a..e895967 100644
 --- a/src/Cafe/HW/Espresso/Interpreter/PPCInterpreterImpl.cpp
 +++ b/src/Cafe/HW/Espresso/Interpreter/PPCInterpreterImpl.cpp
 @@ -1,5 +1,6 @@
  #include "PPCInterpreterInternal.h"
  #include "PPCInterpreterHelper.h"
-+#include "util/Profiling/CemuProfiling.h"
++#include "util/CemuProfiling.h"
  #include "Cafe/HW/Espresso/Debugger/Debugger.h"
  #include "Cafe/HW/Espresso/Debugger/GDBStub.h"
  
@@ -143,14 +143,14 @@ index 2555101..1d989bf 100644
  	else
  	{
 diff --git a/src/Cafe/HW/Espresso/Recompiler/PPCRecompiler.cpp b/src/Cafe/HW/Espresso/Recompiler/PPCRecompiler.cpp
-index 6125c7d..9e02df4 100644
+index 6125c7d..93e9fa3 100644
 --- a/src/Cafe/HW/Espresso/Recompiler/PPCRecompiler.cpp
 +++ b/src/Cafe/HW/Espresso/Recompiler/PPCRecompiler.cpp
 @@ -20,6 +20,7 @@
  #include "BackendAArch64/BackendAArch64.h"
  #endif
  #include "util/highresolutiontimer/HighResolutionTimer.h"
-+#include "util/Profiling/CemuProfiling.h"
++#include "util/CemuProfiling.h"
  
  #define PPCREC_FORCE_SYNCHRONOUS_COMPILATION	0 // if 1, then function recompilation will block and execute on the thread that called PPCRecompiler_visitAddressNoBlock
  #define PPCREC_LOG_RECOMPILATION_RESULTS		0
@@ -530,12 +530,12 @@ index 19ad257..541fd42 100644
  
  	if (type == Espresso::PSQ_LOAD_TYPE::TYPE_UNUSED1 ||
 diff --git a/src/Cafe/HW/Latte/Renderer/Vulkan/VulkanRenderer.cpp b/src/Cafe/HW/Latte/Renderer/Vulkan/VulkanRenderer.cpp
-index f6d7228..7dfaf3d 100644
+index f6d7228..1de2129 100644
 --- a/src/Cafe/HW/Latte/Renderer/Vulkan/VulkanRenderer.cpp
 +++ b/src/Cafe/HW/Latte/Renderer/Vulkan/VulkanRenderer.cpp
 @@ -1,4 +1,5 @@
  #include "Cafe/HW/Latte/Renderer/Vulkan/VulkanRenderer.h"
-+#include "util/Profiling/CemuProfiling.h"
++#include "util/CemuProfiling.h"
  #include "Cafe/HW/Latte/Renderer/Vulkan/VulkanAPI.h"
  #include "Cafe/HW/Latte/Renderer/Vulkan/LatteTextureVk.h"
  #include "Cafe/HW/Latte/Renderer/Vulkan/RendererShaderVk.h"
@@ -601,12 +601,12 @@ index f6d7228..7dfaf3d 100644
  
  	auto outputUniforms = shader->FillUniformBlockBuffer(*texView, {imageWidth, imageHeight}, padView);
 diff --git a/src/Cafe/HW/Latte/Renderer/Vulkan/VulkanRendererCore.cpp b/src/Cafe/HW/Latte/Renderer/Vulkan/VulkanRendererCore.cpp
-index a681418..1298fe2 100644
+index a681418..7576d94 100644
 --- a/src/Cafe/HW/Latte/Renderer/Vulkan/VulkanRendererCore.cpp
 +++ b/src/Cafe/HW/Latte/Renderer/Vulkan/VulkanRendererCore.cpp
 @@ -1,4 +1,5 @@
  #include "Cafe/HW/Latte/Renderer/Vulkan/VulkanRenderer.h"
-+#include "util/Profiling/CemuProfiling.h"
++#include "util/CemuProfiling.h"
  #include "Cafe/HW/Latte/Renderer/Vulkan/VulkanAPI.h"
  #include "Cafe/HW/Latte/Renderer/Vulkan/LatteTextureVk.h"
  #include "Cafe/HW/Latte/Renderer/Vulkan/RendererShaderVk.h"
@@ -764,14 +764,14 @@ index 83658f3..c3d9bf9 100644
 +}
 \ No newline at end of file
 diff --git a/src/Cafe/OS/libs/coreinit/coreinit_Thread.cpp b/src/Cafe/OS/libs/coreinit/coreinit_Thread.cpp
-index 7c7571f..c9cb1ba 100644
+index 7c7571f..1cf9f4e 100644
 --- a/src/Cafe/OS/libs/coreinit/coreinit_Thread.cpp
 +++ b/src/Cafe/OS/libs/coreinit/coreinit_Thread.cpp
 @@ -14,6 +14,7 @@
  #include "util/Fiber/Fiber.h"
  
  #include "util/helpers/helpers.h"
-+#include "util/Profiling/CemuProfiling.h"
++#include "util/CemuProfiling.h"
  
  #ifdef __arm64__
  #if defined(__clang__)
@@ -1630,14 +1630,14 @@ index 7c7571f..c9cb1ba 100644
 +}
 \ No newline at end of file
 diff --git a/src/Cafe/OS/libs/snd_core/ax_out.cpp b/src/Cafe/OS/libs/snd_core/ax_out.cpp
-index 6cb1599..fb07522 100644
+index 6cb1599..90b61a1 100644
 --- a/src/Cafe/OS/libs/snd_core/ax_out.cpp
 +++ b/src/Cafe/OS/libs/snd_core/ax_out.cpp
 @@ -4,6 +4,7 @@
  #include "audio/IAudioAPI.h"
  //#include "ax.h"
  #include "config/CemuConfig.h"
-+#include "util/Profiling/CemuProfiling.h"
++#include "util/CemuProfiling.h"
  
  namespace snd_core
  {
