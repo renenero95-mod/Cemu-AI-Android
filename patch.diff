@@ -260,17 +260,19 @@ index a681418..b4e009b 100644
  	{
  		SubmitCommandBuffer();
 diff --git a/src/Cafe/OS/libs/coreinit/coreinit_MEM.cpp b/src/Cafe/OS/libs/coreinit/coreinit_MEM.cpp
-index 83658f3..7201847 100644
+index 83658f3..818e8a6 100644
 --- a/src/Cafe/OS/libs/coreinit/coreinit_MEM.cpp
 +++ b/src/Cafe/OS/libs/coreinit/coreinit_MEM.cpp
-@@ -7,7 +7,61 @@
- #include "Cafe/OS/libs/coreinit/coreinit_MEM_FrmHeap.h"
- #include "coreinit_DynLoad.h"
+@@ -9,6 +9,62 @@
  
--// the system area is a block of memory that exists only in the emulator. It is used to simplify dynamic memory allocation for system data
-+
+ // the system area is a block of memory that exists only in the emulator. It is used to simplify dynamic memory allocation for system data
+ // this partially overlaps with the system heap from coreinit_SysHeap.cpp -> Use SysHeap for everything
 +// ---------------------------------------------------------------------------
 +// CemuFixer: low guest memory (0x00000000 - 0x00002000) guard
++// On a real Wii U (and on desktop Cemu, where this range is mapped as "MEM0")
++// a read through a NULL object pointer such as lwz r12,0x494(r3) with r3=0 does
++// not fault. If the host page behind guest address 0 is not readable (Android),
++// the same game code raises SIGSEGV. Make sure those pages exist.
 +// ---------------------------------------------------------------------------
 +#if defined(__linux__) || defined(__ANDROID__)
 +#include <sys/mman.h>
@@ -321,12 +323,10 @@ index 83658f3..7201847 100644
 +static void CemuFixer_EnsureLowGuestMemory() {}
 +#endif
 +
-+// the system area is a block of memory that exists only in the emulator.
-+ It is used to simplify dynamic memory allocation for system data
- // this partially overlaps with the system heap from coreinit_SysHeap.cpp -> Use SysHeap for everything
  MPTR sysAreaAllocatorOffset = 0;
  
-@@ -633,6 +687,8 @@ namespace coreinit
+ MPTR coreinit_allocFromSysArea(uint32 size, uint32 alignment)
+@@ -633,6 +689,8 @@ namespace coreinit
  	void InitializeMEM()
  	{
          MEMResetToDefaultState();
