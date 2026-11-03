@@ -94,19 +94,6 @@ index e76a53f..2bf0a5c 100644
  			ppcImlGenContext.currentOutputSegment = nullptr;
  			return false;
  		}
-diff --git a/src/Cafe/HW/Espresso/Recompiler/PPCRecompilerImlGenFPU.cpp b/src/Cafe/HW/Espresso/Recompiler/PPCRecompilerImlGenFPU.cpp
-index 19ad257..4b58c3a 100644
---- a/src/Cafe/HW/Espresso/Recompiler/PPCRecompilerImlGenFPU.cpp
-+++ b/src/Cafe/HW/Espresso/Recompiler/PPCRecompilerImlGenFPU.cpp
-@@ -990,7 +990,7 @@ bool PPCRecompilerImlGen_PSQ_ST(ppcImlGenContext_t* ppcImlGenContext, uint32 opc
- 	}
- 
- 	Espresso::PSQ_LOAD_TYPE type = static_cast<Espresso::PSQ_LOAD_TYPE>((gqrValue >> 0) & 0x7);
--	sint32 scale = (gqrValue >> 24) & 0x3F;
-+	sint32 scale = (gqrValue >> 8) & 0x3F;
- 	cemu_assert_debug(scale == 0); // known GQR values always use a scale of 0 (1.0f)
- 
- 	if (type == Espresso::PSQ_LOAD_TYPE::TYPE_UNUSED1 ||
 diff --git a/src/Cafe/OS/libs/coreinit/coreinit_MEM.cpp b/src/Cafe/OS/libs/coreinit/coreinit_MEM.cpp
 index 83658f3..c3d9bf9 100644
 --- a/src/Cafe/OS/libs/coreinit/coreinit_MEM.cpp
