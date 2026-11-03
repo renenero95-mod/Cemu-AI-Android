@@ -755,7 +755,7 @@ index 83658f3..c3d9bf9 100644
 +}
 \ No newline at end of file
 diff --git a/src/Cafe/OS/libs/coreinit/coreinit_Thread.cpp b/src/Cafe/OS/libs/coreinit/coreinit_Thread.cpp
-index 7c7571f..9a5c7a1 100644
+index 7c7571f..4447d93 100644
 --- a/src/Cafe/OS/libs/coreinit/coreinit_Thread.cpp
 +++ b/src/Cafe/OS/libs/coreinit/coreinit_Thread.cpp
 @@ -14,6 +14,7 @@
@@ -788,7 +788,16 @@ index 7c7571f..9a5c7a1 100644
  MPTR activeThread[256];
  sint32 activeThreadCount = 0;
  
-@@ -63,12 +67,11 @@ namespace coreinit
+@@ -52,6 +56,8 @@ void nnNfp_update();
+ 
+ namespace coreinit
+ {
++	SlimRWLock srwlock_activeThreadList;
++
+ #ifdef __arm64__
+ 	void __OSFiberThreadEntry(uint32, uint32);
+ #else
+@@ -63,12 +69,11 @@ namespace coreinit
  
  namespace coreinit
  {
@@ -804,7 +813,7 @@ index 7c7571f..9a5c7a1 100644
  
  	SysAllocator<OSThreadQueue, 3> g_coreRunQueue;
  	CounterSemaphore g_coreRunQueueThreadCount[3];
-@@ -78,7 +81,7 @@ namespace coreinit
+@@ -78,7 +83,7 @@ namespace coreinit
  	thread_local uint32 t_assignedCoreIndex;
  	thread_local Fiber* t_schedulerFiber;
  
@@ -813,7 +822,7 @@ index 7c7571f..9a5c7a1 100644
  	{
  		OSHostThread(OSThread_t* thread) : m_thread(thread), m_fiber((void(*)(void*))__OSFiberThreadEntry, this, this)
  		{
-@@ -88,7 +91,6 @@ namespace coreinit
+@@ -88,7 +93,6 @@ namespace coreinit
  
  		OSThread_t* m_thread;
  		Fiber m_fiber;
@@ -821,7 +830,7 @@ index 7c7571f..9a5c7a1 100644
  		uint8  padding[1024 * 128];
  		PPCInterpreter_t ppcInstance;
  		uint32 selectedCore;
-@@ -137,8 +139,6 @@ namespace coreinit
+@@ -137,8 +141,6 @@ namespace coreinit
  		return g_isMulticoreMode;
  	}
  
@@ -830,7 +839,7 @@ index 7c7571f..9a5c7a1 100644
  	void __OSCreateHostThread(OSThread_t* thread)
  	{
  		cemu_assert_debug(__OSHasSchedulerLock());
-@@ -148,7 +148,6 @@ namespace coreinit
+@@ -148,7 +150,6 @@ namespace coreinit
  		s_threadToFiber.emplace(thread, hostThread);
  	}
  
@@ -838,7 +847,7 @@ index 7c7571f..9a5c7a1 100644
  	void __OSDeleteHostThread(OSThread_t* thread)
  	{
  		static OSHostThread* _deleteQueue = nullptr;
-@@ -160,21 +159,17 @@ namespace coreinit
+@@ -160,21 +161,17 @@ namespace coreinit
  			_deleteQueue = nullptr;
  		}
  
@@ -861,7 +870,7 @@ index 7c7571f..9a5c7a1 100644
  
  		MPTR threadMPTR = memory_getVirtualOffsetFromPointer(thread);
  
-@@ -184,7 +179,7 @@ namespace coreinit
+@@ -184,7 +181,7 @@ namespace coreinit
  		{
  			if (activeThread[i] == threadMPTR)
  			{
@@ -870,7 +879,7 @@ index 7c7571f..9a5c7a1 100644
  				alreadyActive = true;
  			}
  		}
-@@ -199,12 +194,10 @@ namespace coreinit
+@@ -199,12 +196,10 @@ namespace coreinit
  		srwlock_activeThreadList.UnlockWrite();
  	}
  
@@ -883,7 +892,7 @@ index 7c7571f..9a5c7a1 100644
  		MPTR t = memory_getVirtualOffsetFromPointer(thread);
  		srwlock_activeThreadList.LockWrite();
  		bool noHit = true;
-@@ -221,7 +214,7 @@ namespace coreinit
+@@ -221,7 +216,7 @@ namespace coreinit
  		cemu_assert_debug(noHit == false);
  		srwlock_activeThreadList.UnlockWrite();
  		
@@ -892,7 +901,7 @@ index 7c7571f..9a5c7a1 100644
  		
  		cemu_assert_debug(thread->state == OSThread_t::THREAD_STATE::STATE_NONE);
  		thread->id = 0x8000;
-@@ -247,7 +240,6 @@ namespace coreinit
+@@ -247,7 +242,6 @@ namespace coreinit
  		return false;
  	}
  
@@ -900,7 +909,7 @@ index 7c7571f..9a5c7a1 100644
  	OSThread_t* __currentCoreThread[3] = {};
  
  	void OSSetCurrentThread(uint32 coreIndex, OSThread_t* thread)
-@@ -271,14 +263,10 @@ namespace coreinit
+@@ -271,14 +265,10 @@ namespace coreinit
  		uint32 r4 = hCPU->gpr[4];
  		uint32 lr = hCPU->spr.LR;
  
@@ -915,7 +924,7 @@ index 7c7571f..9a5c7a1 100644
  		hCPU->spr.LR = lr;
  		hCPU->gpr[3] = r3;
  		hCPU->gpr[4] = r4;
-@@ -290,7 +278,7 @@ namespace coreinit
+@@ -290,7 +280,7 @@ namespace coreinit
  	void __OSInitContext(OSContext_t* ctx, MEMPTR<void> initialIP, MEMPTR<void> initialStackPointer)
  	{
  		ctx->SetContextMagic();
@@ -924,7 +933,7 @@ index 7c7571f..9a5c7a1 100644
  		for(auto& it : ctx->gpr)
  			it = 0;
  		ctx->gpr[1] = _swapEndianU32(initialStackPointer.GetMPTR());
-@@ -379,7 +367,7 @@ namespace coreinit
+@@ -379,7 +369,7 @@ namespace coreinit
  		alignedStackTop32[-2] = 0;
  
  		__OSInitContext(&thread->context, MEMPTR<void>(PPCInterpreter_makeCallableExportDepr(threadEntry)), (void*)(alignedStackTop32.GetPtr() - 2));
@@ -933,7 +942,7 @@ index 7c7571f..9a5c7a1 100644
  		thread->stackEnd = ((uint8*)stackTop.GetPtr() - stackSize);
  		thread->context.upir = upirCoreIndex;
  		thread->context.lr = _swapEndianU32(PPCInterpreter_makeCallableExportDepr(coreinitExport_OSExitThreadDepr));
-@@ -404,8 +392,6 @@ namespace coreinit
+@@ -404,8 +394,6 @@ namespace coreinit
  		for(sint32 i=0; i<Espresso::CORE_COUNT; i++)
  			thread->context.coretime[i] = 0;
  
@@ -942,7 +951,7 @@ index 7c7571f..9a5c7a1 100644
  		for(sint32 i=0; i<Espresso::CORE_COUNT; i++)
  			thread->currentRunQueue[i] = nullptr;
  		thread->waitQueueLink.prev = nullptr;
-@@ -438,7 +424,7 @@ namespace coreinit
+@@ -438,7 +426,7 @@ namespace coreinit
  			thread->attr |= OSThread_t::ATTR_BIT::ATTR_AFFINITY_CORE1;
  			thread->context.affinity |= (1<<1);
  		}
@@ -951,7 +960,7 @@ index 7c7571f..9a5c7a1 100644
  		{
  			thread->attr |= OSThread_t::ATTR_BIT::ATTR_AFFINITY_CORE2;
  			thread->context.affinity |= (1<<2);
-@@ -451,14 +437,11 @@ namespace coreinit
+@@ -451,14 +439,11 @@ namespace coreinit
  		bool isThreadStillActive = __OSIsThreadActive(thread);
  		if (isThreadStillActive)
  		{
@@ -967,7 +976,7 @@ index 7c7571f..9a5c7a1 100644
  				__OSLockScheduler();
  			}
  			if (__OSIsThreadActive(thread) && thread->state == OSThread_t::THREAD_STATE::STATE_MORIBUND)
-@@ -504,7 +487,7 @@ namespace coreinit
+@@ -504,7 +489,7 @@ namespace coreinit
  		thread->threadName = nullptr;
  		thread->context.affinity = attrBits & 7;
  		thread->attr = attrBits;
@@ -976,7 +985,7 @@ index 7c7571f..9a5c7a1 100644
  			SetThreadAffinityToCore(thread, OSGetCoreId());
  		if(currentThread)
  		{
-@@ -533,11 +516,10 @@ namespace coreinit
+@@ -533,11 +518,10 @@ namespace coreinit
  		if (entrypoint)
  		{
  			thread->id = 0x8000;
@@ -989,7 +998,7 @@ index 7c7571f..9a5c7a1 100644
  		if (entrypoint)
  			PPCRecompiler_recompileIfUnvisited(entrypoint.GetMPTR());
  		return true;
-@@ -559,7 +541,6 @@ namespace coreinit
+@@ -559,7 +543,6 @@ namespace coreinit
  		return __OSCreateThreadInternal2(thread, MEMPTR<void>(entryPoint), numParam, ptrParam, stackTop, stackSize, priority, attr, OSThread_t::THREAD_TYPE::TYPE_APP);
  	}
  
@@ -997,7 +1006,7 @@ index 7c7571f..9a5c7a1 100644
  	bool __OSCreateThreadType(OSThread_t* thread, MPTR entryPoint, sint32 numParam, void* ptrParam, void* stackTop, sint32 stackSize, sint32 priority, uint32 attr, OSThread_t::THREAD_TYPE threadType)
  	{
  		return __OSCreateThreadInternal2(thread, MEMPTR<void>(entryPoint), numParam, ptrParam, stackTop, stackSize, priority, attr, threadType);
-@@ -569,11 +550,10 @@ namespace coreinit
+@@ -569,11 +552,10 @@ namespace coreinit
  	{
  		__OSLockScheduler();
  
@@ -1010,7 +1019,7 @@ index 7c7571f..9a5c7a1 100644
  			cemuLog_logDebug(LogType::Force, "OSRunThread called on thread which cannot be ran");
  			__OSUnlockScheduler();
  			return false;
-@@ -586,15 +566,12 @@ namespace coreinit
+@@ -586,15 +568,12 @@ namespace coreinit
  			coreinit::__OSRemoveThreadFromRunQueues(thread);
  		}
  
@@ -1027,7 +1036,7 @@ index 7c7571f..9a5c7a1 100644
  
  		MPTR threadMPTR = memory_getVirtualOffsetFromPointer(thread);
  
-@@ -614,24 +591,20 @@ namespace coreinit
+@@ -614,24 +593,20 @@ namespace coreinit
  		hCPU->gpr[3] = exitValue;
  		OSThread_t* currentThread = coreinit::OSGetCurrentThread();
  
@@ -1052,7 +1061,7 @@ index 7c7571f..9a5c7a1 100644
  		if (!currentThread->mutexQueue.isEmpty())
  		{
  			cemuLog_log(LogType::Force, "OSExitThread: Thread is holding mutexes");
-@@ -649,24 +622,19 @@ namespace coreinit
+@@ -649,24 +624,19 @@ namespace coreinit
  				coreinit::OSUnlockMutexInternal(mutex);
  			}
  		}
@@ -1077,7 +1086,7 @@ index 7c7571f..9a5c7a1 100644
  			currentThread->state = OSThread_t::THREAD_STATE::STATE_MORIBUND;
  		}
  		PPCCore_switchToSchedulerWithLock();
-@@ -723,6 +691,9 @@ namespace coreinit
+@@ -723,6 +693,9 @@ namespace coreinit
  		OSInitThreadQueue(_threadQueue.GetPointer());
  		__OSLockScheduler();
  		OSHostAlarm* hostAlarm = OSHostAlarmCreate(OSGetTime() + ticks, 0, _OSSleepTicks_alarmHandler, _threadQueue.GetPointer());
@@ -1087,7 +1096,7 @@ index 7c7571f..9a5c7a1 100644
  		_threadQueue.GetPointer()->queueAndWait(OSGetCurrentThread());
  		OSHostAlarmDestroy(hostAlarm);
  		__OSUnlockScheduler();
-@@ -734,16 +705,11 @@ namespace coreinit
+@@ -734,16 +707,11 @@ namespace coreinit
  		thread->attr |= OSThread_t::ATTR_BIT::ATTR_DETACHED;
  		if (thread->state == OSThread_t::THREAD_STATE::STATE_MORIBUND)
  		{
@@ -1104,7 +1113,7 @@ index 7c7571f..9a5c7a1 100644
  				thread->joinQueue.wakeupEntireWaitQueue(true);
  			}
  		}
-@@ -757,23 +723,22 @@ namespace coreinit
+@@ -757,23 +725,22 @@ namespace coreinit
  		if ((thread->attr & OSThread_t::ATTR_DETACHED) == 0 && thread->state != OSThread_t::THREAD_STATE::STATE_MORIBUND)
  		{
  			cemu_assert_debug(thread->joinQueue.isEmpty());
@@ -1131,7 +1140,7 @@ index 7c7571f..9a5c7a1 100644
  		thread->state = OSThread_t::THREAD_STATE::STATE_NONE;
  		__OSDeactivateThread(thread);
  		coreinit::__OSRemoveThreadFromRunQueues(thread);
-@@ -782,7 +747,7 @@ namespace coreinit
+@@ -782,7 +749,7 @@ namespace coreinit
  		if (!thread->deallocatorFunc.IsNull())
  		{
  			__OSQueueThreadDeallocation(thread);
@@ -1140,7 +1149,7 @@ index 7c7571f..9a5c7a1 100644
  		}
  
  		__OSUnlockScheduler();
-@@ -790,7 +755,6 @@ namespace coreinit
+@@ -790,7 +757,6 @@ namespace coreinit
  		return true;
  	}
  
@@ -1148,7 +1157,7 @@ index 7c7571f..9a5c7a1 100644
  	void __OSAddReadyThreadToRunQueue(OSThread_t* thread)
  	{
          cemu_assert_debug(MMU_IsInPPCMemorySpace(thread));
-@@ -804,8 +768,7 @@ namespace coreinit
+@@ -804,8 +770,7 @@ namespace coreinit
  		for (sint32 i = 0; i < PPC_CORE_COUNT; i++)
  		{
  			if (thread->currentRunQueue[i] != nullptr)
@@ -1158,7 +1167,7 @@ index 7c7571f..9a5c7a1 100644
  			if(!thread->context.hasCoreAffinitySet(i))
  				continue;
  			g_coreRunQueue.GetPtr()[i].addThread(thread, thread->linkRun + i);
-@@ -827,17 +790,13 @@ namespace coreinit
+@@ -827,17 +792,13 @@ namespace coreinit
  		}
  	}
  
@@ -1176,7 +1185,7 @@ index 7c7571f..9a5c7a1 100644
  		return newThread->effectivePriority < currentThread->effectivePriority;
  	}
  
-@@ -857,10 +816,7 @@ namespace coreinit
+@@ -857,10 +818,7 @@ namespace coreinit
  		if (thread->suspendCounter == 0)
  		{
  			__OSAddReadyThreadToRunQueue(thread);
@@ -1187,7 +1196,7 @@ index 7c7571f..9a5c7a1 100644
  			if (PPCInterpreter_getCurrentInstance() && __OSCoreShouldSwitchToThread(coreinit::OSGetCurrentThread(), thread, false))
  				PPCCore_switchToSchedulerWithLock();
  		}
-@@ -885,7 +841,7 @@ namespace coreinit
+@@ -885,7 +843,7 @@ namespace coreinit
  	void __OSSuspendThreadInternal(OSThread_t* thread)
  	{
  		cemu_assert_debug(__OSHasSchedulerLock());
@@ -1196,7 +1205,7 @@ index 7c7571f..9a5c7a1 100644
  
  		sint32 previousSuspendCount = thread->suspendCounter;
  
-@@ -900,7 +856,6 @@ namespace coreinit
+@@ -900,7 +858,6 @@ namespace coreinit
  			if (previousSuspendCount == 0)
  			{
  				__OSRemoveThreadFromRunQueues(thread);
@@ -1204,7 +1213,7 @@ index 7c7571f..9a5c7a1 100644
  			}
  		}
  	}
-@@ -920,6 +875,9 @@ namespace coreinit
+@@ -920,6 +877,9 @@ namespace coreinit
  	void OSSleepThread(OSThreadQueue* threadQueue)
  	{
  		__OSLockScheduler();
@@ -1214,7 +1223,7 @@ index 7c7571f..9a5c7a1 100644
  		threadQueue->queueAndWait(OSGetCurrentThread());
  		__OSUnlockScheduler();
  	}
-@@ -940,7 +898,6 @@ namespace coreinit
+@@ -940,7 +900,6 @@ namespace coreinit
  		{
  			thread->attr = (thread->attr & ~7) | (affinityMask & 7);
  			thread->context.setAffinity(affinityMask);
@@ -1222,7 +1231,7 @@ index 7c7571f..9a5c7a1 100644
  		}
  		else if (prevAffinityMask != affinityMask)
  		{
-@@ -997,7 +954,6 @@ namespace coreinit
+@@ -997,7 +956,6 @@ namespace coreinit
  	{
  		if (thread->context.boostCount != 0)
  		{
@@ -1230,7 +1239,7 @@ index 7c7571f..9a5c7a1 100644
  			thread->effectivePriority = 0;
  			return;
  		}
-@@ -1009,12 +965,11 @@ namespace coreinit
+@@ -1009,12 +967,11 @@ namespace coreinit
  		if (newPriority < 0 || newPriority >= 0x20)
  		{
  			cemu_assert_debug(false);
@@ -1244,7 +1253,7 @@ index 7c7571f..9a5c7a1 100644
  		OSThread_t* currentThread = OSGetCurrentThread();
  		if (currentThread && currentThread != thread)
  		{
-@@ -1070,17 +1025,15 @@ namespace coreinit
+@@ -1070,17 +1027,15 @@ namespace coreinit
      void OSCancelThread(OSThread_t* thread)
  	{
  		__OSLockScheduler();
@@ -1263,7 +1272,7 @@ index 7c7571f..9a5c7a1 100644
  		cemu_assert_debug(__OSHasSchedulerLock());
  		OSThread_t* thread = OSGetCurrentThread();
  		if (thread->requestFlags == OSThread_t::REQUEST_FLAG_CANCEL)
-@@ -1109,11 +1062,9 @@ namespace coreinit
+@@ -1109,11 +1064,9 @@ namespace coreinit
  
  	void __OSThreadLoadContext(PPCInterpreter_t* hCPU, OSThread_t* thread)
  	{
@@ -1275,7 +1284,7 @@ index 7c7571f..9a5c7a1 100644
  		ppc_setCR(hCPU, thread->context.cr);
  		hCPU->spr.LR = _swapEndianU32(thread->context.lr);
  		hCPU->spr.CTR = thread->context.ctr;
-@@ -1121,7 +1072,6 @@ namespace coreinit
+@@ -1121,7 +1074,6 @@ namespace coreinit
  
  		hCPU->fpscr = thread->context.fpscr.fpscr;
  
@@ -1283,7 +1292,7 @@ index 7c7571f..9a5c7a1 100644
  		for (uint32 i = 0; i < 32; i++)
  		{
  			hCPU->fpr[i].fp0int = thread->context.fp_ps0[i];
-@@ -1138,10 +1088,8 @@ namespace coreinit
+@@ -1138,10 +1090,8 @@ namespace coreinit
  
  	void __OSThreadStoreContext(PPCInterpreter_t* hCPU, OSThread_t* thread)
  	{
@@ -1294,7 +1303,7 @@ index 7c7571f..9a5c7a1 100644
  		thread->context.cr = ppc_getCR(hCPU);
  		thread->context.lr = _swapEndianU32(hCPU->spr.LR);
  		thread->context.ctr = hCPU->spr.CTR;
-@@ -1150,7 +1098,6 @@ namespace coreinit
+@@ -1150,7 +1100,6 @@ namespace coreinit
  		thread->context.fpscr.fpscr = hCPU->fpscr;
  		thread->context.fpscr.padding = 0;
  
@@ -1302,7 +1311,7 @@ index 7c7571f..9a5c7a1 100644
  		for (uint32 i = 0; i < 32; i++)
  		{
  			thread->context.fp_ps0[i] = hCPU->fpr[i].fp0int;
-@@ -1174,16 +1121,14 @@ namespace coreinit
+@@ -1174,16 +1123,14 @@ namespace coreinit
  		}
  		else if (thread->state == OSThread_t::THREAD_STATE::STATE_MORIBUND || thread->state == OSThread_t::THREAD_STATE::STATE_NONE || thread->state == OSThread_t::THREAD_STATE::STATE_WAITING)
  		{
@@ -1320,7 +1329,7 @@ index 7c7571f..9a5c7a1 100644
  		sint64 executedCycles = (sint64)thread->quantumTicks - (sint64)hCPU->remainingCycles;
  		executedCycles = std::max<sint64>(executedCycles, 0);
  		if (executedCycles < (sint64)hCPU->skippedCycles)
-@@ -1191,7 +1136,6 @@ namespace coreinit
+@@ -1191,7 +1138,6 @@ namespace coreinit
  		else
  			executedCycles -= hCPU->skippedCycles;
  		thread->totalCycles += (uint64)executedCycles;
@@ -1328,7 +1337,7 @@ index 7c7571f..9a5c7a1 100644
  		__OSThreadStoreContext(hCPU, thread);
  		OSSetCurrentThread(OSGetCoreId(), nullptr);
  		PPCInterpreter_setCurrentInstance(nullptr);
-@@ -1210,7 +1154,6 @@ namespace coreinit
+@@ -1210,7 +1156,6 @@ namespace coreinit
  		__OSThreadLoadContext(hCPU, thread);
  		thread->context.upir = coreIndex;
  		thread->quantumTicks = ppcThreadQuantum;
@@ -1336,7 +1345,7 @@ index 7c7571f..9a5c7a1 100644
  		thread->wakeUpTime = PPCInterpreter_getMainCoreCycleCounter();
  		thread->wakeUpCount = thread->wakeUpCount + 1;
  	}
-@@ -1220,11 +1163,8 @@ namespace coreinit
+@@ -1220,11 +1165,8 @@ namespace coreinit
  	void __OSThreadStartTimeslice(OSThread_t* thread, PPCInterpreter_t* hCPU)
  	{
  		uint32 coreIndex = PPCInterpreter_getCoreIndex(hCPU);
@@ -1348,7 +1357,7 @@ index 7c7571f..9a5c7a1 100644
  		if (s_lehmer_lcg[coreIndex] == 0)
  			s_lehmer_lcg[coreIndex] = 12345;
  		hCPU->remainingCycles += (s_lehmer_lcg[coreIndex] & 0x7F);
-@@ -1234,7 +1174,6 @@ namespace coreinit
+@@ -1234,7 +1176,6 @@ namespace coreinit
  	OSThread_t* __OSGetNextRunableThread(uint32 coreIndex)
  	{
  		cemu_assert_debug(__OSHasSchedulerLock());
@@ -1356,7 +1365,7 @@ index 7c7571f..9a5c7a1 100644
  		OSThreadQueue* runQueue = g_coreRunQueue.GetPtr() + coreIndex;
  
  		OSThread_t* threadItr = runQueue->head.GetPtr();
-@@ -1272,18 +1211,13 @@ namespace coreinit
+@@ -1272,18 +1213,13 @@ namespace coreinit
  
  	void __OSCheckSystemEvents()
  	{
@@ -1375,7 +1384,7 @@ index 7c7571f..9a5c7a1 100644
  	void __OSThreadCoreIdle(void* unusedParam)
  	{
  		bool isMainCore = g_isMulticoreMode == false || t_assignedCoreIndex == 1;
-@@ -1291,7 +1225,7 @@ namespace coreinit
+@@ -1291,7 +1227,7 @@ namespace coreinit
  		__OSUnlockScheduler();
  		while (true)
  		{
@@ -1384,7 +1393,7 @@ index 7c7571f..9a5c7a1 100644
  			{
  				__OSLockScheduler();
  				OSThread_t* nextThread = __OSGetNextRunableThread(coreIndex);
-@@ -1310,10 +1244,9 @@ namespace coreinit
+@@ -1310,10 +1246,9 @@ namespace coreinit
  			}
  			else
  			{
@@ -1396,7 +1405,7 @@ index 7c7571f..9a5c7a1 100644
  			}
  		}
  	}
-@@ -1325,19 +1258,14 @@ namespace coreinit
+@@ -1325,19 +1260,14 @@ namespace coreinit
  		OSHostThread* hostThread = (OSHostThread*)Fiber::GetFiberPrivateData();
          cemu_assert_debug(hostThread);
  
@@ -1417,7 +1426,7 @@ index 7c7571f..9a5c7a1 100644
  		static uint32 _coreCounter = 0;
  
  		sint32 coreIndex;
-@@ -1349,11 +1277,8 @@ namespace coreinit
+@@ -1349,11 +1279,8 @@ namespace coreinit
  			_coreCounter = (_coreCounter + 1) % 3;
  		}
  
@@ -1429,7 +1438,7 @@ index 7c7571f..9a5c7a1 100644
  		if(isMainThread)
  			Fiber::Switch(*g_idleLoopFiber[t_assignedCoreIndex]);
  		else if (OSThread_t* nextThread = __OSGetNextRunableThread(coreIndex))
-@@ -1369,7 +1294,6 @@ namespace coreinit
+@@ -1369,7 +1296,6 @@ namespace coreinit
  		cemu_assert_debug(__OSHasSchedulerLock());	
  		cemu_assert_debug(g_isMulticoreMode == false || hostThread->selectedCore == t_assignedCoreIndex);
  
@@ -1437,7 +1446,7 @@ index 7c7571f..9a5c7a1 100644
  		__OSLoadThread(hostThread->m_thread, &hostThread->ppcInstance, hostThread->selectedCore);
  		__OSThreadStartTimeslice(hostThread->m_thread, &hostThread->ppcInstance);
  	}
-@@ -1389,23 +1313,32 @@ namespace coreinit
+@@ -1389,23 +1315,32 @@ namespace coreinit
  		PPCInterpreter_t* hCPU = &hostThread->ppcInstance;
  		__OSLoadThread(hostThread->m_thread, hCPU, hostThread->selectedCore);
  		__OSThreadStartTimeslice(hostThread->m_thread, &hostThread->ppcInstance);
@@ -1475,7 +1484,7 @@ index 7c7571f..9a5c7a1 100644
  			__OSLockScheduler();
  			__OSThreadSwitchToNext();
  			__OSUnlockScheduler();
-@@ -1431,12 +1364,26 @@ namespace coreinit
+@@ -1431,12 +1366,26 @@ namespace coreinit
  		SetThreadName(fmt::format("OSSched[core={}]", (uintptr_t)_assignedCoreIndex).c_str());
  		t_assignedCoreIndex = (sint32)(uintptr_t)_assignedCoreIndex;
  
@@ -1503,7 +1512,7 @@ index 7c7571f..9a5c7a1 100644
  			prctl(PR_SET_DUMPABLE, (unsigned long)1);
  			prctl(PR_SET_PTRACER, PR_SET_PTRACER_ANY);
  		}
-@@ -1450,12 +1397,10 @@ namespace coreinit
+@@ -1450,12 +1399,10 @@ namespace coreinit
  
  		t_schedulerFiber = Fiber::PrepareCurrentThread();
  
@@ -1516,7 +1525,7 @@ index 7c7571f..9a5c7a1 100644
  		cemu_assert_debug(!__OSHasSchedulerLock());
  	}
  
-@@ -1466,12 +1411,12 @@ namespace coreinit
+@@ -1466,12 +1413,12 @@ namespace coreinit
  		return g_schedulerThreadHandles;
  	}
  
@@ -1532,7 +1541,7 @@ index 7c7571f..9a5c7a1 100644
  		cemu_assert_debug(numCPUEmulationThreads == 1 || numCPUEmulationThreads == 3);
  		g_isMulticoreMode = numCPUEmulationThreads > 1;
  		if (numCPUEmulationThreads == 1)
-@@ -1487,14 +1432,14 @@ namespace coreinit
+@@ -1487,14 +1434,14 @@ namespace coreinit
  			g_schedulerThreadHandles.emplace_back(it.native_handle());
  	}
  
@@ -1553,7 +1562,7 @@ index 7c7571f..9a5c7a1 100644
  		for (auto& threadItr : sSchedulerThreads)
  			threadItr.join();
  		sSchedulerThreads.clear();
-@@ -1505,7 +1450,6 @@ namespace coreinit
+@@ -1505,7 +1452,6 @@ namespace coreinit
  			g_schedulerThreadIds.clear();
  		}
  #endif
@@ -1561,7 +1570,7 @@ index 7c7571f..9a5c7a1 100644
  		for (auto& it : g_idleLoopFiber)
  		{
  			delete it;
-@@ -1553,7 +1497,6 @@ namespace coreinit
+@@ -1553,7 +1499,6 @@ namespace coreinit
  		threadQueue->ukn0C = 0;
  	}
  	
@@ -1569,7 +1578,7 @@ index 7c7571f..9a5c7a1 100644
  	struct TerminatorThread 
  	{
  		struct DeallocatorQueueEntry
-@@ -1587,14 +1530,12 @@ namespace coreinit
+@@ -1587,14 +1532,12 @@ namespace coreinit
  		osLib_returnFromFunction(hCPU, 0);
  	}
  
@@ -1585,7 +1594,7 @@ index 7c7571f..9a5c7a1 100644
  	}
  
  	void __OSInitTerminatorThreads()
-@@ -1665,7 +1606,6 @@ namespace coreinit
+@@ -1665,7 +1608,6 @@ namespace coreinit
  
  		cafeExportRegister("coreinit", OSGetDefaultThread, LogType::CoreinitThread);
  
@@ -1593,7 +1602,7 @@ index 7c7571f..9a5c7a1 100644
  		cafeExportRegister("coreinit", OSInitThreadQueue, LogType::CoreinitThread);
  		cafeExportRegister("coreinit", OSInitThreadQueueEx, LogType::CoreinitThread);
      }
-@@ -1680,4 +1620,4 @@ namespace coreinit
+@@ -1680,4 +1622,4 @@ namespace coreinit
  		__OSInitDefaultThreads();
  		__OSInitTerminatorThreads();
  	}
