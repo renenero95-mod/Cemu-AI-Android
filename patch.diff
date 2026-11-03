@@ -1869,10 +1869,9 @@ index 58e8f4b..1f239e6 100644
  
  		channel.voice = voice;
  
-diff --git a/mod/src/util/Profiling/CemuProfiling.h b/src/util/Profiling/CemuProfiling.h
-new file mode 100644
-index 0000000..1d115a4
---- /dev/null
+diff --git a/src/util/Profiling/CemuProfiling.h b/src/util/Profiling/CemuProfiling.h
+index e69de29..b723163 100644
+--- a/src/util/Profiling/CemuProfiling.h
 +++ b/src/util/Profiling/CemuProfiling.h
 @@ -0,0 +1,96 @@
 +#pragma once
@@ -1888,42 +1887,42 @@ index 0000000..1d115a4
 +
 +namespace CemuProfiling
 +{
-+    using Clock = std::chrono::steady_clock;
++    extern Counter g_interpreter;
++    extern Counter g_hle;
++    extern Counter g_recompiler;
++    extern Counter g_fiberTimeslice;
++    extern Counter g_drawcalls;
++    extern Counter g_pipelineChanges;
++    extern Counter g_threadSleepWait;
++    extern Counter g_threadJoinWait;
++    extern Counter g_threadQueueWait;
++    extern Counter g_vulkanSubmit;
++    extern Counter g_vulkanPresent;
++    extern Counter g_vulkanFenceWait;
++    extern Counter g_audioUpdate;
++    extern Counter g_audioMutexWait;
++    extern Counter g_reportHeartbeat;
++    extern Counter g_frameHeartbeat;
++    extern Counter g_rendererHeartbeat;
 +
-+    struct Counter
-+    {
-+        std::atomic<uint64_t> calls{ 0 };
-+        std::atomic<uint64_t> items{ 0 };
-+        std::atomic<uint64_t> nanoseconds{ 0 };
-+
-+        void Record(uint64_t itemCount, uint64_t elapsedNs)
-+        {
-+            calls.fetch_add(1, std::memory_order_relaxed);
-+            items.fetch_add(itemCount, std::memory_order_relaxed);
-+            nanoseconds.fetch_add(elapsedNs, std::memory_order_relaxed);
-+        }
-+
-+        void AddItems(uint64_t itemCount = 1)
-+        {
-+            items.fetch_add(itemCount, std::memory_order_relaxed);
-+        }
-+
-+        struct Snapshot
-+        {
-+            uint64_t calls;
-+            uint64_t items;
-+            uint64_t nanoseconds;
-+        };
-+
-+        Snapshot TakeSnapshot()
-+        {
-+            return {
-+                calls.exchange(0, std::memory_order_relaxed),
-+                items.exchange(0, std::memory_order_relaxed),
-+                nanoseconds.exchange(0, std::memory_order_relaxed)
-+            };
-+        }
-+    };
++    inline Counter& Interpreter()     { return g_interpreter; }
++    inline Counter& HLE()             { return g_hle; }
++    inline Counter& Recompiler()      { return g_recompiler; }
++    inline Counter& FiberTimeslice()  { return g_fiberTimeslice; }
++    inline Counter& Drawcalls()       { return g_drawcalls; }
++    inline Counter& PipelineChanges() { return g_pipelineChanges; }
++    inline Counter& ThreadSleepWait() { return g_threadSleepWait; }
++    inline Counter& ThreadJoinWait()  { return g_threadJoinWait; }
++    inline Counter& ThreadQueueWait() { return g_threadQueueWait; }
++    inline Counter& VulkanSubmit()    { return g_vulkanSubmit; }
++    inline Counter& VulkanPresent()   { return g_vulkanPresent; }
++    inline Counter& VulkanFenceWait() { return g_vulkanFenceWait; }
++    inline Counter& AudioUpdate()     { return g_audioUpdate; }
++    inline Counter& AudioMutexWait()  { return g_audioMutexWait; }
++    inline Counter& ReportHeartbeat()   { return g_reportHeartbeat; }
++    inline Counter& FrameHeartbeat()    { return g_frameHeartbeat; }
++    inline Counter& RendererHeartbeat() { return g_rendererHeartbeat; }
++};
 +
 +    inline Counter& Interpreter()       { static Counter c; return c; }
 +    inline Counter& HLE()               { static Counter c; return c; }
