@@ -61,26 +61,131 @@ index bfb2aed..a0b9e7b 100644
  bool PPCRecompilerImlGen_PSQ_ST(ppcImlGenContext_t* ppcImlGenContext, uint32 opcode, bool withUpdate);
  bool PPCRecompilerImlGen_PS_MULSX(ppcImlGenContext_t* ppcImlGenContext, uint32 opcode, bool isVariant1);
 diff --git a/src/Cafe/HW/Espresso/Recompiler/PPCRecompilerImlGen.cpp b/src/Cafe/HW/Espresso/Recompiler/PPCRecompilerImlGen.cpp
-index e76a53f..26e3e9d 100644
+index e76a53f..9415ce7 100644
 --- a/src/Cafe/HW/Espresso/Recompiler/PPCRecompilerImlGen.cpp
 +++ b/src/Cafe/HW/Espresso/Recompiler/PPCRecompilerImlGen.cpp
-@@ -1975,6 +1975,16 @@ bool PPCRecompiler_decodePPCInstruction(ppcImlGenContext_t* ppcImlGenContext)
- 				break;
- 			}
- 			break;
-+		case 6: // PSQ_LX
-+			if (PPCRecompilerImlGen_PSQ_LX(ppcImlGenContext, opcode) == false)
-+				unsupportedInstructionFound = true;
-+			ppcImlGenContext->hasFPUInstruction = true;
-+			break;
-+		case 7: // PSQ_STX
-+			if (PPCRecompilerImlGen_PSQ_STX(ppcImlGenContext, opcode) == false)
-+				unsupportedInstructionFound = true;
-+			ppcImlGenContext->hasFPUInstruction = true;
-+			break;
- 		case 8: //Sub category - move/negate
- 			switch (PPC_getBits(opcode, 25, 5))
+@@ -3190,74 +3190,84 @@ bool PPCRecompiler_GenerateIML(ppcImlGenContext_t& ppcImlGenContext, PPCFunction
+ 	// mark segments with unknown jump destination (e.g. BLR and most macros)
+ 	PPCRecompiler_SetSegmentsUncertainFlow(ppcImlGenContext);
+ 
+-	// debug - check segment graph
+-#ifdef CEMU_DEBUG_ASSERT
+-	//for (size_t i = 0; i < basicBlockList.size(); i++)
+-	//{
+-	//	IMLSegment* seg = ppcImlGenContext.segmentList2[i];
+-	//	if (seg->list_prevSegments.empty())
+-	//	{
+-	//		cemu_assert_debug(seg->isEnterable);
+-	//	}
+-	//}
+-	// debug - check if suffix instructions are at the end of segments and if they are present for branching segments
++	#ifdef CEMU_DEBUG_ASSERT
++
+ 	for (size_t segIndex = 0; segIndex < ppcImlGenContext.segmentList2.size(); segIndex++)
+ 	{
+ 		IMLSegment* seg = ppcImlGenContext.segmentList2[segIndex];
+-		IMLSegment* nextSeg = (segIndex+1) < ppcImlGenContext.segmentList2.size() ? ppcImlGenContext.segmentList2[segIndex + 1] : nullptr;
++		IMLSegment* nextSeg = (segIndex + 1) < ppcImlGenContext.segmentList2.size() ? ppcImlGenContext.segmentList2[segIndex + 1] : nullptr;
+ 
+-		if (seg->imlList.size() > 0)
++		const uint32 ppc = seg->ppcAddress;
++
++		auto dumpFailure = [&](const char* reason)
+ 		{
+-			for (size_t f = 0; f < seg->imlList.size() - 1; f++)
++			debug_printf(
++				"\n[IML GRAPH ASSERT] %s\n"
++				"  segment index: %zu\n"
++				"  PPC address:   0x%08X\n"
++				"  segment:       %p\n"
++				"  next segment:  %p\n"
++				"  branch taken:  %p\n"
++				"  branch not:    %p\n"
++				"  IML count:     %zu\n",
++				reason, segIndex, ppc, (void*)seg, (void*)nextSeg, (void*)seg->nextSegmentBranchTaken, (void*)seg->nextSegmentBranchNotTaken, seg->imlList.size()
++			);
++			if (seg->imlList.size() > 0)
  			{
+-				if (seg->imlList[f].IsSuffixInstruction())
+-				{
+-					debug_printf("---------------- SegmentDump (Suffix instruction at wrong pos in segment 0x%x):\n", (int)segIndex);
+-					IMLDebug_Dump(&ppcImlGenContext);
+-					DEBUG_BREAK;
+-				}
++				IMLInstruction* last = seg->GetLastInstruction();
++				debug_printf("  last IML type:      %u\n  last IML operation: %u\n", (uint32)last->type, (uint32)last->operation);
+ 			}
+-		}
+-		if (seg->nextSegmentBranchTaken)
++			IMLDebug_Dump(&ppcImlGenContext);
++		};
++
++		for (size_t f = 0; f + 1 < seg->imlList.size(); f++)
+ 		{
+-			if (!seg->HasSuffixInstruction())
++			if (seg->imlList[f].IsSuffixInstruction())
+ 			{
+-				debug_printf("---------------- SegmentDump (NoSuffixInstruction in segment 0x%x):\n", (int)segIndex);
+-				IMLDebug_Dump(&ppcImlGenContext);
++				dumpFailure("Suffix instruction is not last");
+ 				DEBUG_BREAK;
+ 			}
+ 		}
+-		if (seg->nextSegmentBranchNotTaken)
++		if (seg->nextSegmentBranchTaken && !seg->HasSuffixInstruction())
+ 		{
+-			// if branch not taken, flow must continue to next segment in sequence
+-			cemu_assert_debug(seg->nextSegmentBranchNotTaken == nextSeg);
++			dumpFailure("Branch-taken segment has no suffix instruction");
++			DEBUG_BREAK;
++		}
++		if (seg->nextSegmentBranchNotTaken && seg->nextSegmentBranchNotTaken != nextSeg)
++		{
++			dumpFailure("Branch-not-taken does not point to next segment");
++			DEBUG_BREAK;
+ 		}
+-		// more detailed checks based on actual suffix instruction
+ 		if (seg->imlList.size() > 0)
+ 		{
+ 			IMLInstruction* inst = seg->GetLastInstruction();
+ 			if (inst->type == PPCREC_IML_TYPE_MACRO && inst->op_macro.param == PPCREC_IML_MACRO_B_FAR)
+ 			{
+-				cemu_assert_debug(!seg->GetBranchTaken());
+-				cemu_assert_debug(!seg->GetBranchNotTaken());
++				if (seg->GetBranchTaken() || seg->GetBranchNotTaken())
++				{
++					dumpFailure("B_FAR unexpectedly has segment links");
++					DEBUG_BREAK;
++				}
+ 			}
+ 			if (inst->type == PPCREC_IML_TYPE_CJUMP_CYCLE_CHECK)
+ 			{
+-				cemu_assert_debug(seg->GetBranchTaken());
+-				cemu_assert_debug(seg->GetBranchNotTaken());
++				if (!seg->GetBranchTaken() || !seg->GetBranchNotTaken())
++				{
++					dumpFailure("Cycle check is missing a branch");
++					DEBUG_BREAK;
++				}
+ 			}
+ 			if (inst->type == PPCREC_IML_TYPE_CONDITIONAL_JUMP)
+ 			{
+ 				if (!seg->GetBranchTaken() || !seg->GetBranchNotTaken())
+ 				{
+-					debug_printf("---------------- SegmentDump (Missing branch for conditional jump in segment 0x%x):\n", (int)segIndex);
+-					IMLDebug_Dump(&ppcImlGenContext);
+-					cemu_assert_error();
++					dumpFailure("Conditional jump is missing a branch");
++					DEBUG_BREAK;
+ 				}
+ 			}
+ 		}
+-		segIndex++;
+ 	}
++
+ #endif
+ 
+ 
 diff --git a/src/Cafe/HW/Espresso/Recompiler/PPCRecompilerImlGenFPU.cpp b/src/Cafe/HW/Espresso/Recompiler/PPCRecompilerImlGenFPU.cpp
 index 19ad257..541fd42 100644
 --- a/src/Cafe/HW/Espresso/Recompiler/PPCRecompilerImlGenFPU.cpp
