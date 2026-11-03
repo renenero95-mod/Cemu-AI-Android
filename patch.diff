@@ -1,52 +1,3 @@
-diff --git a/src/Cafe/HW/Espresso/Recompiler/BackendAArch64/BackendAArch64.cpp b/src/Cafe/HW/Espresso/Recompiler/BackendAArch64/BackendAArch64.cpp
-index 2555101..1d989bf 100644
---- a/src/Cafe/HW/Espresso/Recompiler/BackendAArch64/BackendAArch64.cpp
-+++ b/src/Cafe/HW/Espresso/Recompiler/BackendAArch64/BackendAArch64.cpp
-@@ -1169,7 +1169,7 @@ bool AArch64GenContext_t::fpr_load(IMLInstruction* imlInstruction, bool indexed)
- 		}
- 		else
- 		{
--			fcvt(dataDReg, dataSReg);
-+			dd(0x1E22C000u | (static_cast<uint32>(dataSReg.getIdx()) << 5) | static_cast<uint32>(dataDReg.getIdx()));
- 		}
- 	}
- 	else if (mode == PPCREC_FPR_LD_MODE_DOUBLE)
-@@ -1212,7 +1212,7 @@ bool AArch64GenContext_t::fpr_store(IMLInstruction* imlInstruction, bool indexed
- 		}
- 		else
- 		{
--			fcvt(TEMP_FPR.SReg, dataDReg);
-+			dd(0x1E624000u | (static_cast<uint32>(dataDReg.getIdx()) << 5) | static_cast<uint32>(TEMP_FPR.SReg.getIdx()));
- 			fmov(TEMP_GPR2.WReg, TEMP_FPR.SReg);
- 		}
- 		rev(TEMP_GPR2.WReg, TEMP_GPR2.WReg);
-@@ -1271,7 +1271,7 @@ void AArch64GenContext_t::fpr_r_r(IMLInstruction* imlInstruction)
- 		{
- 			fmov(regFprSReg, gpReg<WReg>(imlRegA));
- 			// float to double
--			fcvt(regFprDReg, regFprSReg);
-+			dd(0x1E22C000u | (static_cast<uint32>(regFprSReg.getIdx()) << 5) | static_cast<uint32>(regFprDReg.getIdx()));
- 		}
- 		else if (imlRegA.GetRegFormat() == IMLRegFormat::I64)
- 		{
-@@ -1387,14 +1387,14 @@ void AArch64GenContext_t::fpr_r(IMLInstruction* imlInstruction)
- 	else if (imlInstruction->operation == PPCREC_IML_OP_FPR_ROUND_TO_SINGLE_PRECISION_BOTTOM)
- 	{
- 		// convert to 32bit single
--		fcvt(regRSReg, regRDReg);
-+		dd(0x1E624000u | (static_cast<uint32>(regRDReg.getIdx()) << 5) | static_cast<uint32>(regRSReg.getIdx()));
- 		// convert back to 64bit double
--		fcvt(regRDReg, regRSReg);
-+		dd(0x1E22C000u | (static_cast<uint32>(regRSReg.getIdx()) << 5) | static_cast<uint32>(regRDReg.getIdx()));
- 	}
- 	else if (imlInstruction->operation == PPCREC_IML_OP_FPR_EXPAND_F32_TO_F64)
- 	{
- 		// convert bottom to 64bit double
--		fcvt(regRDReg, regRSReg);
-+		dd(0x1E22C000u | (static_cast<uint32>(regRSReg.getIdx()) << 5) | static_cast<uint32>(regRDReg.getIdx()));
- 	}
- 	else
- 	{
 diff --git a/src/Cafe/HW/Espresso/Recompiler/PPCRecompilerIml.h b/src/Cafe/HW/Espresso/Recompiler/PPCRecompilerIml.h
 index bfb2aed..a0b9e7b 100644
 --- a/src/Cafe/HW/Espresso/Recompiler/PPCRecompilerIml.h
@@ -61,7 +12,7 @@ index bfb2aed..a0b9e7b 100644
  bool PPCRecompilerImlGen_PSQ_ST(ppcImlGenContext_t* ppcImlGenContext, uint32 opcode, bool withUpdate);
  bool PPCRecompilerImlGen_PS_MULSX(ppcImlGenContext_t* ppcImlGenContext, uint32 opcode, bool isVariant1);
 diff --git a/src/Cafe/HW/Espresso/Recompiler/PPCRecompilerImlGen.cpp b/src/Cafe/HW/Espresso/Recompiler/PPCRecompilerImlGen.cpp
-index e76a53f..2bf0a5c 100644
+index e76a53f..26e3e9d 100644
 --- a/src/Cafe/HW/Espresso/Recompiler/PPCRecompilerImlGen.cpp
 +++ b/src/Cafe/HW/Espresso/Recompiler/PPCRecompilerImlGen.cpp
 @@ -1975,6 +1975,16 @@ bool PPCRecompiler_decodePPCInstruction(ppcImlGenContext_t* ppcImlGenContext)
@@ -69,228 +20,154 @@ index e76a53f..2bf0a5c 100644
  			}
  			break;
 +		case 6: // PSQ_LX
-+			if (!PPCRecompilerImlGen_PSQ_LX(ppcImlGenContext, opcode))
++			if (PPCRecompilerImlGen_PSQ_LX(ppcImlGenContext, opcode) == false)
 +				unsupportedInstructionFound = true;
 +			ppcImlGenContext->hasFPUInstruction = true;
 +			break;
 +		case 7: // PSQ_STX
-+			if (!PPCRecompilerImlGen_PSQ_STX(ppcImlGenContext, opcode))
++			if (PPCRecompilerImlGen_PSQ_STX(ppcImlGenContext, opcode) == false)
 +				unsupportedInstructionFound = true;
 +			ppcImlGenContext->hasFPUInstruction = true;
 +			break;
  		case 8: //Sub category - move/negate
  			switch (PPC_getBits(opcode, 25, 5))
  			{
-@@ -2973,7 +2983,11 @@ bool PPCIMLGen_FillBasicBlock(ppcImlGenContext_t& ppcImlGenContext, PPCBasicBloc
- 
- 		if (PPCRecompiler_decodePPCInstruction(&ppcImlGenContext))
- 		{
--			cemuLog_logDebug(LogType::Force, "PPCRecompiler: Unsupported instruction at 0x{:08x}", addressOfCurrentInstruction);
-+			const uint32 rawOpcode = *(ppcImlGenContext.currentInstruction - 1);
-+			const uint32 opcode = CPU_swapEndianU32(rawOpcode);
-+			const uint32 primary = (opcode >> 26) & 0x3F;
-+			const uint32 xo = (opcode >> 1) & 0x3FF;
-+			cemuLog_log(LogType::Force, "[PPCREC UNSUPPORTED] PC=0x{:08X} RAW=0x{:08X} OPCODE=0x{:08X} PRIMARY={} XO={}", addressOfCurrentInstruction, rawOpcode, opcode, primary, xo);
- 			ppcImlGenContext.currentOutputSegment = nullptr;
- 			return false;
- 		}
 diff --git a/src/Cafe/HW/Espresso/Recompiler/PPCRecompilerImlGenFPU.cpp b/src/Cafe/HW/Espresso/Recompiler/PPCRecompilerImlGenFPU.cpp
-index 19ad257..045cee7 100644
+index 19ad257..541fd42 100644
 --- a/src/Cafe/HW/Espresso/Recompiler/PPCRecompilerImlGenFPU.cpp
 +++ b/src/Cafe/HW/Espresso/Recompiler/PPCRecompilerImlGenFPU.cpp
-@@ -5,21 +5,7 @@
- #include "Cafe/GameProfile/GameProfile.h"
- #include "IML/IML.h"
- 
--ATTR_MS_ABI double frsqrte_espresso(double input);
--ATTR_MS_ABI double fres_espresso(double input);
- 
--IMLReg _GetRegCR(ppcImlGenContext_t* ppcImlGenContext, uint8 crReg, uint8 crBit);
--
--#define DefinePS0(name, regIndex) IMLReg name = _GetFPRRegPS0(ppcImlGenContext, regIndex);
--#define DefinePS1(name, regIndex) IMLReg name = _GetFPRRegPS1(ppcImlGenContext, regIndex);
--#define DefinePSX(name, regIndex, isPS1) IMLReg name = isPS1 ? _GetFPRRegPS1(ppcImlGenContext, regIndex) : _GetFPRRegPS0(ppcImlGenContext, regIndex);
--#define DefineTempFPR(name, index) IMLReg name = _GetFPRTemp(ppcImlGenContext, index);
--
--IMLReg _GetFPRRegPS0(ppcImlGenContext_t* ppcImlGenContext, uint32 regIndex)
--{
--	cemu_assert_debug(regIndex < 32);
--	return PPCRecompilerImlGen_LookupReg(ppcImlGenContext, PPCREC_NAME_FPR_HALF + regIndex * 2 + 0, IMLRegFormat::F64);
--}
- 
- IMLReg _GetFPRRegPS1(ppcImlGenContext_t* ppcImlGenContext, uint32 regIndex)
- {
-@@ -812,6 +798,169 @@ void PPCRecompilerImlGen_EmitPSQLoadCase(ppcImlGenContext_t* ppcImlGenContext, s
+@@ -947,6 +947,130 @@ void PPCRecompilerImlGen_EmitPSQStoreCase(ppcImlGenContext_t* ppcImlGenContext,
  }
  
- // PSQ_L and PSQ_LU
-+void PPCRecompilerImlGen_EmitPSQStoreCase(
-+    ppcImlGenContext_t* ppcImlGenContext,
-+    sint32 gqrIndex,
-+    Espresso::PSQ_LOAD_TYPE storeType,
-+    bool storePS1,
-+    IMLReg gprA,
-+    sint32 imm,
-+    IMLReg fprDPS0,
-+    IMLReg fprDPS1)
-+{
-+    cemu_assert_debug(!storePS1 || fprDPS1.IsValid());
-+
-+    if (storeType == Espresso::PSQ_LOAD_TYPE::TYPE_F32)
-+    {
-+        ppcImlGenContext->emitInst().make_fpr_memory_r(fprDPS0, gprA, imm, PPCREC_FPR_ST_MODE_SINGLE, true);
-+        if (storePS1) {
-+            ppcImlGenContext->emitInst().make_fpr_memory_r(fprDPS1, gprA, imm + 4, PPCREC_FPR_ST_MODE_SINGLE, true);
-+        }
-+    }
-+    else if (storeType == Espresso::PSQ_LOAD_TYPE::TYPE_U16 || storeType == Espresso::PSQ_LOAD_TYPE::TYPE_S16)
-+    {
-+        IMLReg gqrRegister = PPCRecompilerImlGen_loadRegister(ppcImlGenContext, PPCREC_NAME_SPR0 + SPR_UGQR0 + gqrIndex);
-+        IMLReg fprScaleReg = _GetFPRTemp(ppcImlGenContext, 2);
-+        PPCRecompilerIMLGen_GetPSQScale(ppcImlGenContext, gqrRegister, fprScaleReg, false);
-+        bool isSigned = (storeType == Espresso::PSQ_LOAD_TYPE::TYPE_S16);
-+        IMLReg fprTmp = _GetFPRTemp(ppcImlGenContext, 0);
-+        IMLReg gprTmp = PPCRecompilerImlGen_loadRegister(ppcImlGenContext, PPCREC_NAME_TEMPORARY + 0);
-+
-+        ppcImlGenContext->emitInst().make_fpr_r_r_r(PPCREC_IML_OP_FPR_MULTIPLY, fprTmp, fprDPS0, fprScaleReg);
-+        ppcImlGenContext->emitInst().make_fpr_r_r(PPCREC_IML_OP_FPR_FLOAT_TO_INT, gprTmp, fprTmp);
-+        if (isSigned) PPCRecompilerImlGen_ClampInteger(ppcImlGenContext, gprTmp, -32768, 32767);
-+        else PPCRecompilerImlGen_ClampInteger(ppcImlGenContext, gprTmp, 0, 65535);
-+        ppcImlGenContext->emitInst().make_memory_r(gprTmp, gprA, imm, 16, true);
-+
-+        if (storePS1) {
-+            ppcImlGenContext->emitInst().make_fpr_r_r_r(PPCREC_IML_OP_FPR_MULTIPLY, fprTmp, fprDPS1, fprScaleReg);
-+            ppcImlGenContext->emitInst().make_fpr_r_r(PPCREC_IML_OP_FPR_FLOAT_TO_INT, gprTmp, fprTmp);
-+            if (isSigned) PPCRecompilerImlGen_ClampInteger(ppcImlGenContext, gprTmp, -32768, 32767);
-+            else PPCRecompilerImlGen_ClampInteger(ppcImlGenContext, gprTmp, 0, 65535);
-+            ppcImlGenContext->emitInst().make_memory_r(gprTmp, gprA, imm + 2, 16, true);
-+        }
-+    }
-+    else if (storeType == Espresso::PSQ_LOAD_TYPE::TYPE_U8 || storeType == Espresso::PSQ_LOAD_TYPE::TYPE_S8)
-+    {
-+        IMLReg gqrRegister = PPCRecompilerImlGen_loadRegister(ppcImlGenContext, PPCREC_NAME_SPR0 + SPR_UGQR0 + gqrIndex);
-+        IMLReg fprScaleReg = _GetFPRTemp(ppcImlGenContext, 2);
-+        PPCRecompilerIMLGen_GetPSQScale(ppcImlGenContext, gqrRegister, fprScaleReg, false);
-+        bool isSigned = (storeType == Espresso::PSQ_LOAD_TYPE::TYPE_S8);
-+        IMLReg fprTmp = _GetFPRTemp(ppcImlGenContext, 0);
-+        IMLReg gprTmp = PPCRecompilerImlGen_loadRegister(ppcImlGenContext, PPCREC_NAME_TEMPORARY + 0);
-+
-+        ppcImlGenContext->emitInst().make_fpr_r_r_r(PPCREC_IML_OP_FPR_MULTIPLY, fprTmp, fprDPS0, fprScaleReg);
-+        ppcImlGenContext->emitInst().make_fpr_r_r(PPCREC_IML_OP_FPR_FLOAT_TO_INT, gprTmp, fprTmp);
-+        if (isSigned) PPCRecompilerImlGen_ClampInteger(ppcImlGenContext, gprTmp, -128, 127);
-+        else PPCRecompilerImlGen_ClampInteger(ppcImlGenContext, gprTmp, 0, 255);
-+        ppcImlGenContext->emitInst().make_memory_r(gprTmp, gprA, imm, 8, true);
-+
-+        if (storePS1) {
-+            ppcImlGenContext->emitInst().make_fpr_r_r_r(PPCREC_IML_OP_FPR_MULTIPLY, fprTmp, fprDPS1, fprScaleReg);
-+            ppcImlGenContext->emitInst().make_fpr_r_r(PPCREC_IML_OP_FPR_FLOAT_TO_INT, gprTmp, fprTmp);
-+            if (isSigned) PPCRecompilerImlGen_ClampInteger(ppcImlGenContext, gprTmp, -128, 127);
-+            else PPCRecompilerImlGen_ClampInteger(ppcImlGenContext, gprTmp, 0, 255);
-+            ppcImlGenContext->emitInst().make_memory_r(gprTmp, gprA, imm + 1, 8, true);
-+        }
-+    }
-+}
-+
-+
-+// PSQ_LX - Paired Single Quantized Load Indexed
+ // PSQ_ST and PSQ_STU
++// PSQ_LX - Load Paired Single Indexed
 +bool PPCRecompilerImlGen_PSQ_LX(ppcImlGenContext_t* ppcImlGenContext, uint32 opcode)
 +{
-+    sint32 frD = (opcode >> 21) & 0x1F;
-+    sint32 rA = (opcode >> 16) & 0x1F;
-+    sint32 rB = (opcode >> 11) & 0x1F;
-+    sint32 gqrIndex = (opcode >> 7) & 0x7;
-+    bool readPS1 = (opcode & (1 << 10)) == 0;
-+    IMLReg gprB = PPCRecompilerImlGen_loadRegister(ppcImlGenContext, PPCREC_NAME_R0 + rB);
-+    IMLReg gprA = gprB;
++	sint32 frD, rA, rB;
++	PPC_OPC_TEMPL_X(opcode, frD, rA, rB);
 +
-+    if (rA != 0) {
-+        IMLReg gprBase = PPCRecompilerImlGen_loadRegister(ppcImlGenContext, PPCREC_NAME_R0 + rA);
-+        gprA = PPCRecompilerImlGen_loadRegister(ppcImlGenContext, PPCREC_NAME_TEMPORARY + 3);
-+        ppcImlGenContext->emitInst().make_r_r_r(PPCREC_IML_OP_ADD, gprA, gprBase, gprB);
-+    }
++	sint32 gqrIndex = (opcode >> 7) & 0x7;
++	bool readPS1 = (opcode & 0x400) == 0;
 +
-+    DefinePS0(fprDPS0, frD);
-+    DefinePS1(fprDPS1, frD);
-+    if (!readPS1) {
-+        ppcImlGenContext->emitInst().make_fpr_r(PPCREC_IML_OP_FPR_LOAD_ONE, fprDPS1);
-+    }
++	IMLReg gprEA = PPCRecompilerImlGen_loadRegister(ppcImlGenContext, PPCREC_NAME_TEMPORARY + 3);
++	IMLReg gprB = PPCRecompilerImlGen_loadRegister(ppcImlGenContext, PPCREC_NAME_R0 + rB);
 +
-+    uint32 knownGQRValue = 0;
-+    if (!PPCRecompiler_isUGQRValueKnown(ppcImlGenContext, gqrIndex, knownGQRValue)) {
-+        IMLReg gqrRegister = PPCRecompilerImlGen_loadRegister(ppcImlGenContext, PPCREC_NAME_SPR0 + SPR_UGQR0 + gqrIndex);
-+        IMLReg loadTypeReg = PPCRecompilerImlGen_loadRegister(ppcImlGenContext, PPCREC_NAME_TEMPORARY + 0);
-+        ppcImlGenContext->emitInst().make_r_r_s32(PPCREC_IML_OP_RIGHT_SHIFT_U, loadTypeReg, gqrRegister, 16);
-+        ppcImlGenContext->emitInst().make_r_r_s32(PPCREC_IML_OP_AND, loadTypeReg, loadTypeReg, 0x7);
-+        IMLSegment* caseSegment[5];
-+        sint32 compareValues[5] = { 0, 4, 5, 6, 7 };
-+        PPCIMLGen_CreateSegmentBranchedPathMultiple(*ppcImlGenContext, *ppcImlGenContext->currentBasicBlock, caseSegment, loadTypeReg, compareValues, 5, 0);
-+        for (sint32 i = 0; i < 5; i++) {
-+            IMLRedirectInstOutput outputToCase(ppcImlGenContext, caseSegment[i]);
-+            PPCRecompilerImlGen_EmitPSQLoadCase(ppcImlGenContext, gqrIndex, static_cast<Espresso::PSQ_LOAD_TYPE>(compareValues[i]), readPS1, gprA, 0, fprDPS0, fprDPS1);
-+            caseSegment[i]->AppendInstruction()->make_jump();
-+        }
-+        return true;
-+    }
++	if (rA == 0)
++	{
++		ppcImlGenContext->emitInst().make_r_r(PPCREC_IML_OP_ASSIGN, gprEA, gprB);
++	}
++	else
++	{
++		IMLReg gprA = PPCRecompilerImlGen_loadRegister(ppcImlGenContext, PPCREC_NAME_R0 + rA);
++		ppcImlGenContext->emitInst().make_r_r_r(PPCREC_IML_OP_ADD, gprEA, gprA, gprB);
++	}
 +
-+    Espresso::PSQ_LOAD_TYPE type = static_cast<Espresso::PSQ_LOAD_TYPE>((knownGQRValue >> 16) & 0x7);
-+    sint32 scale = (knownGQRValue >> 24) & 0x3F;
-+    cemu_assert_debug(scale == 0);
-+    if (scale != 0) return false;
-+    if (type == Espresso::PSQ_LOAD_TYPE::TYPE_UNUSED1 || type == Espresso::PSQ_LOAD_TYPE::TYPE_UNUSED2 || type == Espresso::PSQ_LOAD_TYPE::TYPE_UNUSED3) return false;
-+    PPCRecompilerImlGen_EmitPSQLoadCase(ppcImlGenContext, gqrIndex, type, readPS1, gprA, 0, fprDPS0, fprDPS1);
-+    return true;
++	DefinePS0(fprDPS0, frD);
++	DefinePS1(fprDPS1, frD);
++
++	if (!readPS1)
++	{
++		ppcImlGenContext->emitInst().make_fpr_r(PPCREC_IML_OP_FPR_LOAD_ONE, fprDPS1);
++	}
++
++	uint32 knownGQRValue = 0;
++
++	if (!PPCRecompiler_isUGQRValueKnown(ppcImlGenContext, gqrIndex, knownGQRValue))
++	{
++		IMLReg gqrRegister = PPCRecompilerImlGen_loadRegister(ppcImlGenContext, PPCREC_NAME_SPR0 + SPR_UGQR0 + gqrIndex);
++		IMLReg loadTypeReg = PPCRecompilerImlGen_loadRegister(ppcImlGenContext, PPCREC_NAME_TEMPORARY + 0);
++
++		ppcImlGenContext->emitInst().make_r_r_s32(PPCREC_IML_OP_RIGHT_SHIFT_U, loadTypeReg, gqrRegister, 16);
++		ppcImlGenContext->emitInst().make_r_r_s32(PPCREC_IML_OP_AND, loadTypeReg, loadTypeReg, 0x7);
++
++		IMLSegment* caseSegment[5];
++		sint32 compareValues[5] = { 0, 4, 5, 6, 7 };
++
++		PPCIMLGen_CreateSegmentBranchedPathMultiple(*ppcImlGenContext, *ppcImlGenContext->currentBasicBlock, caseSegment, loadTypeReg, compareValues, 5, 0);
++
++		for (sint32 i = 0; i < 5; i++)
++		{
++			IMLRedirectInstOutput outputToCase(ppcImlGenContext, caseSegment[i]);
++			PPCRecompilerImlGen_EmitPSQLoadCase(ppcImlGenContext, gqrIndex, static_cast<Espresso::PSQ_LOAD_TYPE>(compareValues[i]), readPS1, gprEA, 0, fprDPS0, fprDPS1);
++			caseSegment[i]->AppendInstruction()->make_jump();
++		}
++		return true;
++	}
++
++	Espresso::PSQ_LOAD_TYPE type = static_cast<Espresso::PSQ_LOAD_TYPE>((knownGQRValue >> 16) & 0x7);
++	sint32 scale = (knownGQRValue >> 24) & 0x3F;
++	cemu_assert_debug(scale == 0);
++	if (scale != 0) return false;
++
++	if (type == Espresso::PSQ_LOAD_TYPE::TYPE_UNUSED1 || type == Espresso::PSQ_LOAD_TYPE::TYPE_UNUSED2 || type == Espresso::PSQ_LOAD_TYPE::TYPE_UNUSED3) return false;
++
++	PPCRecompilerImlGen_EmitPSQLoadCase(ppcImlGenContext, gqrIndex, type, readPS1, gprEA, 0, fprDPS0, fprDPS1);
++	return true;
 +}
 +
-+// PSQ_STX - Paired Single Quantized Store Indexed
++// PSQ_STX - Store Paired Single Indexed
 +bool PPCRecompilerImlGen_PSQ_STX(ppcImlGenContext_t* ppcImlGenContext, uint32 opcode)
 +{
-+    sint32 frS = (opcode >> 21) & 0x1F;
-+    sint32 rA = (opcode >> 16) & 0x1F;
-+    sint32 rB = (opcode >> 11) & 0x1F;
-+    sint32 gqrIndex = (opcode >> 7) & 0x7;
-+    bool storePS1 = (opcode & (1 << 10)) == 0;
-+    IMLReg gprB = PPCRecompilerImlGen_loadRegister(ppcImlGenContext, PPCREC_NAME_R0 + rB);
-+    IMLReg gprA = gprB;
++	sint32 frS, rA, rB;
++	PPC_OPC_TEMPL_X(opcode, frS, rA, rB);
 +
-+    if (rA != 0) {
-+        IMLReg gprBase = PPCRecompilerImlGen_loadRegister(ppcImlGenContext, PPCREC_NAME_R0 + rA);
-+        gprA = PPCRecompilerImlGen_loadRegister(ppcImlGenContext, PPCREC_NAME_TEMPORARY + 3);
-+        ppcImlGenContext->emitInst().make_r_r_r(PPCREC_IML_OP_ADD, gprA, gprBase, gprB);
-+    }
++	sint32 gqrIndex = (opcode >> 7) & 0x7;
++	bool storePS1 = (opcode & 0x400) == 0;
 +
-+    DefinePS0(fprDPS0, frS);
-+    IMLReg fprDPS1 = storePS1 ? _GetFPRRegPS1(ppcImlGenContext, frS) : IMLREG_INVALID;
++	IMLReg gprEA = PPCRecompilerImlGen_loadRegister(ppcImlGenContext, PPCREC_NAME_TEMPORARY + 3);
++	IMLReg gprB = PPCRecompilerImlGen_loadRegister(ppcImlGenContext, PPCREC_NAME_R0 + rB);
 +
-+    uint32 gqrValue = 0;
-+    if (!PPCRecompiler_isUGQRValueKnown(ppcImlGenContext, gqrIndex, gqrValue)) {
-+        IMLReg gqrRegister = PPCRecompilerImlGen_loadRegister(ppcImlGenContext, PPCREC_NAME_SPR0 + SPR_UGQR0 + gqrIndex);
-+        IMLReg storeTypeReg = PPCRecompilerImlGen_loadRegister(ppcImlGenContext, PPCREC_NAME_TEMPORARY + 0);
-+        ppcImlGenContext->emitInst().make_r_r_s32(PPCREC_IML_OP_AND, storeTypeReg, gqrRegister, 0x7);
-+        IMLSegment* caseSegment[5];
-+        sint32 compareValues[5] = { 0, 4, 5, 6, 7 };
-+        PPCIMLGen_CreateSegmentBranchedPathMultiple(*ppcImlGenContext, *ppcImlGenContext->currentBasicBlock, caseSegment, storeTypeReg, compareValues, 5, 0);
-+        for (sint32 i = 0; i < 5; i++) {
-+            IMLRedirectInstOutput outputToCase(ppcImlGenContext, caseSegment[i]);
-+            PPCRecompilerImlGen_EmitPSQStoreCase(ppcImlGenContext, gqrIndex, static_cast<Espresso::PSQ_LOAD_TYPE>(compareValues[i]), storePS1, gprA, 0, fprDPS0, fprDPS1);
-+            ppcImlGenContext->emitInst().make_jump();
-+        }
-+        return true;
-+    }
++	if (rA == 0)
++	{
++		ppcImlGenContext->emitInst().make_r_r(PPCREC_IML_OP_ASSIGN, gprEA, gprB);
++	}
++	else
++	{
++		IMLReg gprA = PPCRecompilerImlGen_loadRegister(ppcImlGenContext, PPCREC_NAME_R0 + rA);
++		ppcImlGenContext->emitInst().make_r_r_r(PPCREC_IML_OP_ADD, gprEA, gprA, gprB);
++	}
 +
-+    Espresso::PSQ_LOAD_TYPE type = static_cast<Espresso::PSQ_LOAD_TYPE>(gqrValue & 0x7);
-+    sint32 scale = (gqrValue >> 8) & 0x3F;
-+    cemu_assert_debug(scale == 0);
-+    if (scale != 0) return false;
-+    if (type == Espresso::PSQ_LOAD_TYPE::TYPE_UNUSED1 || type == Espresso::PSQ_LOAD_TYPE::TYPE_UNUSED2 || type == Espresso::PSQ_LOAD_TYPE::TYPE_UNUSED3) return false;
-+    PPCRecompilerImlGen_EmitPSQStoreCase(ppcImlGenContext, gqrIndex, type, storePS1, gprA, 0, fprDPS0, fprDPS1);
-+    return true;
++	DefinePS0(fprDPS0, frS);
++	IMLReg fprDPS1 = storePS1 ? _GetFPRRegPS1(ppcImlGenContext, frS) : IMLREG_INVALID;
++
++	uint32 gqrValue = 0;
++
++	if (!PPCRecompiler_isUGQRValueKnown(ppcImlGenContext, gqrIndex, gqrValue))
++	{
++		IMLReg gqrRegister = PPCRecompilerImlGen_loadRegister(ppcImlGenContext, PPCREC_NAME_SPR0 + SPR_UGQR0 + gqrIndex);
++		IMLReg storeTypeReg = PPCRecompilerImlGen_loadRegister(ppcImlGenContext, PPCREC_NAME_TEMPORARY + 0);
++
++		ppcImlGenContext->emitInst().make_r_r_s32(PPCREC_IML_OP_AND, storeTypeReg, gqrRegister, 0x7);
++
++		IMLSegment* caseSegment[5];
++		sint32 compareValues[5] = { 0, 4, 5, 6, 7 };
++
++		PPCIMLGen_CreateSegmentBranchedPathMultiple(*ppcImlGenContext, *ppcImlGenContext->currentBasicBlock, caseSegment, storeTypeReg, compareValues, 5, 0);
++
++		for (sint32 i = 0; i < 5; i++)
++		{
++			IMLRedirectInstOutput outputToCase(ppcImlGenContext, caseSegment[i]);
++			PPCRecompilerImlGen_EmitPSQStoreCase(ppcImlGenContext, gqrIndex, static_cast<Espresso::PSQ_LOAD_TYPE>(compareValues[i]), storePS1, gprEA, 0, fprDPS0, fprDPS1);
++			caseSegment[i]->AppendInstruction()->make_jump();
++		}
++		return true;
++	}
++
++	Espresso::PSQ_LOAD_TYPE type = static_cast<Espresso::PSQ_LOAD_TYPE>((gqrValue >> 0) & 0x7);
++	sint32 scale = (gqrValue >> 8) & 0x3F;
++	cemu_assert_debug(scale == 0);
++	if (scale != 0) return false;
++
++	if (type == Espresso::PSQ_LOAD_TYPE::TYPE_UNUSED1 || type == Espresso::PSQ_LOAD_TYPE::TYPE_UNUSED2 || type == Espresso::PSQ_LOAD_TYPE::TYPE_UNUSED3) return false;
++
++	PPCRecompilerImlGen_EmitPSQStoreCase(ppcImlGenContext, gqrIndex, type, storePS1, gprEA, 0, fprDPS0, fprDPS1);
++	return true;
 +}
 +
-+
- bool PPCRecompilerImlGen_PSQ_L(ppcImlGenContext_t* ppcImlGenContext, uint32 opcode, bool withUpdate)
+ bool PPCRecompilerImlGen_PSQ_ST(ppcImlGenContext_t* ppcImlGenContext, uint32 opcode, bool withUpdate)
  {
  	int rA, frD;
-@@ -990,7 +1139,7 @@ bool PPCRecompilerImlGen_PSQ_ST(ppcImlGenContext_t* ppcImlGenContext, uint32 opc
+@@ -990,7 +1114,7 @@ bool PPCRecompilerImlGen_PSQ_ST(ppcImlGenContext_t* ppcImlGenContext, uint32 opc
  	}
  
  	Espresso::PSQ_LOAD_TYPE type = static_cast<Espresso::PSQ_LOAD_TYPE>((gqrValue >> 0) & 0x7);
@@ -299,346 +176,3 @@ index 19ad257..045cee7 100644
  	cemu_assert_debug(scale == 0); // known GQR values always use a scale of 0 (1.0f)
  
  	if (type == Espresso::PSQ_LOAD_TYPE::TYPE_UNUSED1 ||
-diff --git a/src/Cafe/OS/libs/coreinit/coreinit_MEM.cpp b/src/Cafe/OS/libs/coreinit/coreinit_MEM.cpp
-index 83658f3..c3d9bf9 100644
---- a/src/Cafe/OS/libs/coreinit/coreinit_MEM.cpp
-+++ b/src/Cafe/OS/libs/coreinit/coreinit_MEM.cpp
-@@ -7,6 +7,64 @@
- #include "Cafe/OS/libs/coreinit/coreinit_MEM_FrmHeap.h"
- #include "coreinit_DynLoad.h"
- 
-+// ---------------------------------------------------------------------------
-+// CemuFixer: low guest memory (0x00000000 - 0x00002000) guard
-+// On a real Wii U (and on desktop Cemu, where this range is mapped as "MEM0")
-+// a read through a NULL object pointer such as lwz r12,0x494(r3) with r3=0 does
-+// not fault. If the host page behind guest address 0 is not readable (Android),
-+// the same game code raises SIGSEGV. Make sure those pages exist.
-+// ---------------------------------------------------------------------------
-+#if defined(__linux__) || defined(__ANDROID__)
-+#include <sys/mman.h>
-+#include <unistd.h>
-+#include <cerrno>
-+
-+static bool CemuFixer_IsHostByteReadable(const void* p)
-+{
-+	// write() copies from the user buffer and returns EFAULT instead of crashing
-+	int fds[2];
-+	if (pipe(fds) != 0)
-+		return true; // cannot probe -> assume fine, do not touch anything
-+	const ssize_t r = write(fds[1], p, 1);
-+	const bool readable = !(r < 0 && errno == EFAULT);
-+	close(fds[0]);
-+	close(fds[1]);
-+	return readable;
-+}
-+
-+static void CemuFixer_EnsureLowGuestMemory()
-+{
-+	if (!memory_base)
-+		return;
-+	const size_t pageSize = (size_t)sysconf(_SC_PAGESIZE);
-+	size_t lowSize = 0x2000;
-+	if (lowSize % pageSize)
-+		lowSize += pageSize - (lowSize % pageSize);
-+
-+	bool allReadable = true;
-+	for (size_t off = 0; off < lowSize; off += pageSize)
-+	{
-+		if (!CemuFixer_IsHostByteReadable(memory_base + off))
-+		{
-+			allReadable = false;
-+			break;
-+		}
-+	}
-+	if (allReadable)
-+	{
-+		cemuLog_log(LogType::Force, "[LOWMEM] guest 0x0-0x{:x} already readable, nothing to do", lowSize);
-+		return;
-+	}
-+	void* res = mmap(memory_base, lowSize, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED, -1, 0);
-+	if (res == MAP_FAILED)
-+		cemuLog_log(LogType::Force, "[LOWMEM] guest 0x0-0x{:x} NOT readable and mmap failed (errno={})", lowSize, errno);
-+	else
-+		cemuLog_log(LogType::Force, "[LOWMEM] guest 0x0-0x{:x} was unmapped on host -> mapped zeroed RW pages (host={})", lowSize, (void*)res);
-+}
-+#else
-+static void CemuFixer_EnsureLowGuestMemory() {}
-+#endif
-+
- // the system area is a block of memory that exists only in the emulator. It is used to simplify dynamic memory allocation for system data
- // this partially overlaps with the system heap from coreinit_SysHeap.cpp -> Use SysHeap for everything
- MPTR sysAreaAllocatorOffset = 0;
-@@ -456,6 +514,9 @@ namespace coreinit
- 	MEMHeapBase* MEMDefaultHeap_Init(void* mem, uint32 size)
- 	{
- 		MEMHeapBase* heap = MEMCreateExpHeapEx(mem, size, 4);
-+		cemuLog_log(LogType::Force,
-+			"[MEM PTR HEAP-INIT] defaultHeap=0x{:08x} backing=0x{:08x} size=0x{:x}",
-+			MEMPTR<void>(heap).GetMPTR(), memory_getVirtualOffsetFromPointer(mem), size);
- 		gDefaultHeap = heap;
- 		cemu_assert_debug(heap);
- 		return heap;
-@@ -464,7 +525,13 @@ namespace coreinit
- 	void* default_MEMAllocFromDefaultHeap(uint32 size)
- 	{
- 		void* mem = MEMAllocFromExpHeapEx(gDefaultHeap, size, 0x40);
-+		cemuLog_log(LogType::Force,
-+			"[MEM PTR ALLOC-DEFAULT] heap=0x{:08x} size=0x{:x} ptr=0x{:08x} host=0x{:x}",
-+			MEMPTR<void>(gDefaultHeap).GetMPTR(), size,
-+			MEMPTR<void>(mem).GetMPTR(), (uint64)(uintptr_t)mem);
- 		cemuLog_logDebug(LogType::CoreinitMem, "MEMAllocFromDefaultHeap(0x{:08x}) Result: 0x{:08x}", size, memory_getVirtualOffsetFromPointer(mem));
-+		if (!mem)
-+			cemuLog_log(LogType::Force, "MEM ALLOC FAILED: MEMAllocFromDefaultHeap(size=0x{:x}) -> NULL", size);
- 		return mem;
- 	}
- 
-@@ -478,7 +545,13 @@ namespace coreinit
- 	void* default_MEMAllocFromDefaultHeapEx(uint32 size, sint32 alignment)
- 	{
- 		void* mem = MEMAllocFromExpHeapEx(gDefaultHeap, size, alignment);
-+		cemuLog_log(LogType::Force,
-+			"[MEM PTR ALLOC-DEFAULT-EX] heap=0x{:08x} size=0x{:x} alignment={} ptr=0x{:08x} host=0x{:x}",
-+			MEMPTR<void>(gDefaultHeap).GetMPTR(), size, alignment,
-+			MEMPTR<void>(mem).GetMPTR(), (uint64)(uintptr_t)mem);
- 		cemuLog_logDebug(LogType::CoreinitMem, "MEMAllocFromDefaultHeap(0x{:08x},{}) Result: 0x{:08x}", size, alignment, memory_getVirtualOffsetFromPointer(mem));
-+		if (!mem)
-+			cemuLog_log(LogType::Force, "MEM ALLOC FAILED: MEMAllocFromDefaultHeapEx(size=0x{:x}, alignment={}) -> NULL", size, alignment);
- 		return mem;
- 	}
- 
-@@ -492,6 +565,10 @@ namespace coreinit
- 
- 	void default_MEMFreeToDefaultHeap(void* mem)
- 	{
-+		cemuLog_log(LogType::Force,
-+			"[MEM PTR FREE-DEFAULT] heap=0x{:08x} ptr=0x{:08x} host=0x{:x}",
-+			MEMPTR<void>(gDefaultHeap).GetMPTR(),
-+			MEMPTR<void>(mem).GetMPTR(), (uint64)(uintptr_t)mem);
- 		MEMFreeToExpHeap(gDefaultHeap, mem);
- 	}
- 
-@@ -633,6 +710,7 @@ namespace coreinit
- 	void InitializeMEM()
- 	{
-         MEMResetToDefaultState();
-+		CemuFixer_EnsureLowGuestMemory();
- 
- 		cafeExportRegister("coreinit", CoreInitDefaultHeap, LogType::CoreinitMem);
- 
-@@ -659,4 +737,4 @@ namespace coreinit
- 		cafeExportRegister("coreinit", MEMGetPrevListObject, LogType::CoreinitMem);
- 	}
- 
--}
-+}
-\ No newline at end of file
-diff --git a/src/Cafe/OS/libs/snd_user/snd_user.cpp b/src/Cafe/OS/libs/snd_user/snd_user.cpp
-index 58e8f4b..1f239e6 100644
---- a/src/Cafe/OS/libs/snd_user/snd_user.cpp
-+++ b/src/Cafe/OS/libs/snd_user/snd_user.cpp
-@@ -301,52 +301,119 @@ namespace snd_user
- 			_MIXChannelResetRmt(channel, i);
- 	}
- 
--	void _MIXControl_SetDevicePan(MixControl* control, int device_type, sint16 channels[])
-+	void _MIXControl_SetDevicePan(
-+		MixControl* control,
-+		int device_type,
-+		sint16 channels[])
- 	{
--		const auto pandiff = 0x7F - control->pan;
--		const auto spandiff = 0x7F - control->span;
-+		if (!control || !channels)
-+		{
-+			cemuLog_log(
-+				LogType::Force,
-+				"[MIX PAN] Invalid control/channels pointer"
-+			);
-+			return;
-+		}
-+
-+		if (device_type != AX_DEV_TV &&
-+			device_type != AX_DEV_DRC)
-+		{
-+			cemuLog_log(
-+				LogType::Force,
-+				"[MIX PAN] Invalid device type: {}",
-+				device_type
-+			);
-+			return;
-+		}
-+
-+		// PowerPC values are signed 16-bit.
-+		// Clamp them before using them as array indexes.
-+		const uint32 pan =
-+			control->pan < 0 ? 0 :
-+			control->pan > 0x7F ? 0x7F :
-+			static_cast<uint32>(control->pan);
-+
-+		const uint32 span =
-+			control->span < 0 ? 0 :
-+			control->span > 0x7F ? 0x7F :
-+			static_cast<uint32>(control->span);
-+
-+		const uint32 pandiff = 0x7F - pan;
-+		const uint32 spandiff = 0x7F - span;
- 
- 		if (device_type == AX_DEV_TV)
- 		{
--			const uint32 sound_mode = g_snd_user_data.device_info.tv_sound_mode;
-+			memset(
-+				channels,
-+				0,
-+				sizeof(sint16) * AX_TV_CHANNEL_COUNT
-+			);
-+
-+			const uint32 sound_mode =
-+				g_snd_user_data.device_info.tv_sound_mode;
-+
- 			if (sound_mode == 3)
- 			{
--				channels[0] = g_snd_user_data.pan_values_low[control->pan];
--				channels[1] = g_snd_user_data.pan_values_low[pandiff];
--				channels[2] = g_snd_user_data.pan_values_high[pandiff];
--				channels[3] = g_snd_user_data.pan_values_high[control->pan];
--				channels[4] = g_snd_user_data.pan_values_high[spandiff];
--				channels[5] = g_snd_user_data.pan_values_high[control->span];
-+				channels[0] =
-+					g_snd_user_data.pan_values_low[pan];
-+
-+				channels[1] =
-+					g_snd_user_data.pan_values_low[pandiff];
-+
-+				channels[2] =
-+					g_snd_user_data.pan_values_high[pandiff];
-+
-+				channels[3] =
-+					g_snd_user_data.pan_values_high[pan];
-+
-+				channels[4] =
-+					g_snd_user_data.pan_values_high[spandiff];
-+
-+				channels[5] =
-+					g_snd_user_data.pan_values_high[span];
- 			}
- 			else if (sound_mode != 4)
- 			{
--				channels[0] = g_snd_user_data.pan_values[control->pan];
--				channels[1] = g_snd_user_data.pan_values[pandiff];
-+				channels[0] =
-+					g_snd_user_data.pan_values[pan];
-+
-+				channels[1] =
-+					g_snd_user_data.pan_values[pandiff];
-+
- 				channels[2] = 0;
- 				channels[3] = 0;
--				channels[4] = g_snd_user_data.pan_values[spandiff];
--				channels[5] = g_snd_user_data.pan_values[control->span];
-+
-+				channels[4] =
-+					g_snd_user_data.pan_values[spandiff];
-+
-+				channels[5] =
-+					g_snd_user_data.pan_values[span];
- 			}
- 			else
- 			{
--				uint32 pan = 0x7F;
--				if (((uint32)control->pan >> 1) < 0x7F)
--					pan = (uint32)control->pan >> 1;
-+				uint32 p = pan >> 1;
- 
--				channels[0] = g_snd_user_data.pan_values[pan] + g_snd_user_data.pan_values[spandiff];
-+				if (p >= 0x7F)
-+					p = 0x7F;
- 
--				uint32 span = 0x7F;
--				if (((uint32)pandiff >> 1) < 0x7E)
--					span = (uint32)pandiff >> 1;
-+				channels[0] =
-+					g_snd_user_data.pan_values[p] +
-+					g_snd_user_data.pan_values[spandiff];
- 
--				channels[1] = g_snd_user_data.pan_values[span] + g_snd_user_data.pan_values[spandiff];
-+				uint32 s = pandiff >> 1;
- 
--				// TODO
-+				if (s >= 0x7E)
-+					s = 0x7F;
-+
-+				channels[1] =
-+					g_snd_user_data.pan_values[s] +
-+					g_snd_user_data.pan_values[spandiff];
- 			}
- 		}
- 		else if (device_type == AX_DEV_DRC)
- 		{
--			// TODO
-+			// Preserve existing DRC implementation status.
-+			// DRC channel mapping still needs implementation.
- 		}
- 	}
- 
-@@ -766,10 +833,59 @@ namespace snd_user
- 		cemu_assert_debug(voice);
- 		cemu_assert_debug(control);
- 
--		AXVoiceBegin(voice);
-+		if (!voice || !control)
-+		{
-+			cemuLog_log(
-+				LogType::Force,
-+				"[MIX INIT] Null voice/control pointer"
-+			);
-+			return;
-+		}
-+
-+		if (!g_snd_user_data.initialized ||
-+			g_snd_user_data.max_voices <= 0)
-+		{
-+			cemuLog_log(
-+				LogType::Force,
-+				"[MIX INIT] Sound system not initialized"
-+			);
-+			return;
-+		}
-+
-+		if (device_type >= AX_DEV_COUNT)
-+			return;
-+
-+		if ((device_type == AX_DEV_TV && index != 0) ||
-+			(device_type == AX_DEV_DRC && index >= AX_MAX_NUM_DRC) ||
-+			(device_type == AX_DEV_RMT && index >= AX_MAX_NUM_RMT))
-+		{
-+			cemuLog_log(
-+				LogType::Force,
-+				"[MIX INIT] Invalid device index: {} / {}",
-+				device_type,
-+				index
-+			);
-+			return;
-+		}
- 
- 		const uint32 voice_index = voice->index;
--		auto& channel = g_snd_user_data.mix_channel[voice_index];
-+
-+		if (voice_index >=
-+			static_cast<uint32>(g_snd_user_data.max_voices))
-+		{
-+			cemuLog_log(
-+				LogType::Force,
-+				"[MIX INIT] Invalid voice index: {} max={}",
-+				voice_index,
-+				g_snd_user_data.max_voices
-+			);
-+			return;
-+		}
-+
-+		AXVoiceBegin(voice);
-+
-+		auto& channel =
-+			g_snd_user_data.mix_channel[voice_index];
- 
- 		channel.voice = voice;
- 
