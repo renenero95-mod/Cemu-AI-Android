@@ -48,37 +48,23 @@ index 2555101..1d989bf 100644
  	else
  	{
 diff --git a/src/Cafe/HW/Espresso/Recompiler/PPCRecompilerImlGen.cpp b/src/Cafe/HW/Espresso/Recompiler/PPCRecompilerImlGen.cpp
-index e76a53f..2a48412 100644
+index e76a53f..d982a73 100644
 --- a/src/Cafe/HW/Espresso/Recompiler/PPCRecompilerImlGen.cpp
 +++ b/src/Cafe/HW/Espresso/Recompiler/PPCRecompilerImlGen.cpp
-@@ -2008,12 +2008,12 @@ bool PPCRecompiler_decodePPCInstruction(ppcImlGenContext_t* ppcImlGenContext)
- 				unsupportedInstructionFound = true;
- 			ppcImlGenContext->hasFPUInstruction = true;
- 			break;
--		case 12: // PS_MULS0
-+		case 6: // PS_MULS0
- 			if (PPCRecompilerImlGen_PS_MULSX(ppcImlGenContext, opcode, false) == false)
- 				unsupportedInstructionFound = true;
- 			ppcImlGenContext->hasFPUInstruction = true;
- 			break;
--		case 13: // PS_MULS1
-+		case 7: // PS_MULS1
- 			if (PPCRecompilerImlGen_PS_MULSX(ppcImlGenContext, opcode, true) == false)
- 				unsupportedInstructionFound = true;
- 			ppcImlGenContext->hasFPUInstruction = true;
-@@ -2973,7 +2973,14 @@ bool PPCIMLGen_FillBasicBlock(ppcImlGenContext_t& ppcImlGenContext, PPCBasicBloc
+@@ -2973,7 +2973,15 @@ bool PPCIMLGen_FillBasicBlock(ppcImlGenContext_t& ppcImlGenContext, PPCBasicBloc
  
  		if (PPCRecompiler_decodePPCInstruction(&ppcImlGenContext))
  		{
 -			cemuLog_logDebug(LogType::Force, "PPCRecompiler: Unsupported instruction at 0x{:08x}", addressOfCurrentInstruction);
-+			const uint32 opcode = CPU_swapEndianU32(*(ppcImlGenContext.currentInstruction - 1));
++			const uint32 rawOpcode = *(ppcImlGenContext.currentInstruction - 1);
++			const uint32 opcode = CPU_swapEndianU32(rawOpcode);
 +			const uint32 primary = (opcode >> 26) & 0x3F;
 +			const uint32 rt = (opcode >> 21) & 0x1F;
 +			const uint32 ra = (opcode >> 16) & 0x1F;
 +			const uint32 rb = (opcode >> 11) & 0x1F;
 +			const uint32 xo = (opcode >> 1) & 0x3FF;
 +			const uint32 rc = opcode & 1;
-+			cemuLog_log(LogType::Force, "[PPCREC UNSUPPORTED] PC=0x{:08X} OPCODE=0x{:08X} PRIMARY={} XO={} RT={} RA={} RB={} Rc={}", addressOfCurrentInstruction, opcode, primary, xo, rt, ra, rb, rc);
++			cemuLog_log(LogType::Force, "[PPCREC UNSUPPORTED] PC=0x{:08X} RAW=0x{:08X} OPCODE=0x{:08X} PRIMARY={} XO={} RT={} RA={} RB={} Rc={}", addressOfCurrentInstruction, rawOpcode, opcode, primary, xo, rt, ra, rb, rc);
  			ppcImlGenContext.currentOutputSegment = nullptr;
  			return false;
  		}
