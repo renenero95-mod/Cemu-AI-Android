@@ -22,7 +22,7 @@ index cf7ba19..a800966 100644
  	if (hleFuncId == 0xFFD0) [[unlikely]]
  	{
 diff --git a/src/Cafe/HW/Espresso/Interpreter/PPCInterpreterImpl.cpp b/src/Cafe/HW/Espresso/Interpreter/PPCInterpreterImpl.cpp
-index 547472a..666fb52 100644
+index 547472a..86334a4 100644
 --- a/src/Cafe/HW/Espresso/Interpreter/PPCInterpreterImpl.cpp
 +++ b/src/Cafe/HW/Espresso/Interpreter/PPCInterpreterImpl.cpp
 @@ -1,5 +1,7 @@
@@ -75,7 +75,7 @@ index 547472a..666fb52 100644
  		return CPU_swapEndianU32(v);
  	}
  
-@@ -439,6 +474,19 @@ public:
+@@ -439,6 +474,25 @@ public:
  
  	static void executeInstruction(PPCInterpreter_t* hCPU)
  	{
@@ -83,32 +83,159 @@ index 547472a..666fb52 100644
 +        // Flush once per 4096 instructions to keep hot-path profiling overhead low.
 +        static thread_local uint32_t profilingInstructionBatch = 0;
 +        static thread_local CemuProfiling::Clock::time_point profilingBatchStart{};
++        static thread_local uint64_t profilingInstructionTotal = 0;
 +        if (profilingInstructionBatch == 0)
 +            profilingBatchStart = CemuProfiling::Clock::now();
++        ++profilingInstructionTotal;
 +        if (++profilingInstructionBatch == 4096)
 +        {
 +            CemuProfiling::Interpreter().Record(
 +                profilingInstructionBatch, CemuProfiling::ElapsedNs(profilingBatchStart));
++            cemuLog_log(LogType::Force,
++                "[PPC PC SAMPLE] pc=0x{:08X} inst={}",
++                static_cast<uint32>(hCPU->instructionPointer),
++                static_cast<unsigned long long>(profilingInstructionTotal));
 +            profilingInstructionBatch = 0;
 +        }
 +#endif
  		if constexpr(ppcItpCtrl::allowSupervisorMode)
  		{
  			hCPU->global->tb++;
+diff --git a/src/Cafe/HW/Espresso/Recompiler/BackendAArch64/BackendAArch64.cpp b/src/Cafe/HW/Espresso/Recompiler/BackendAArch64/BackendAArch64.cpp
+index 2555101..0d1c6b9 100644
+--- a/src/Cafe/HW/Espresso/Recompiler/BackendAArch64/BackendAArch64.cpp
++++ b/src/Cafe/HW/Espresso/Recompiler/BackendAArch64/BackendAArch64.cpp
+@@ -291,7 +291,6 @@ struct AArch64GenContext_t : CodeGenerator
+ template<std::derived_from<VRegSc> T>
+ T fpReg(const IMLReg& imlReg)
+ {
+-	cemu_assert_debug(imlReg.GetRegFormat() == IMLRegFormat::F64);
+ 	auto regId = imlReg.GetRegID();
+ 	cemu_assert_debug(regId >= IMLArchAArch64::PHYSREG_FPR_BASE && regId < IMLArchAArch64::PHYSREG_FPR_BASE + IMLArchAArch64::PHYSREG_FPR_COUNT);
+ 	return T(regId - IMLArchAArch64::PHYSREG_FPR_BASE);
+@@ -1169,7 +1168,9 @@ bool AArch64GenContext_t::fpr_load(IMLInstruction* imlInstruction, bool indexed)
+ 		}
+ 		else
+ 		{
+-			fcvt(dataDReg, dataSReg);
++			uint32_t sIdx = static_cast<uint32_t>(dataSReg.getIdx());
++			uint32_t dIdx = static_cast<uint32_t>(dataDReg.getIdx());
++			dd(0x1E22C000u | (sIdx << 5) | dIdx);
+ 		}
+ 	}
+ 	else if (mode == PPCREC_FPR_LD_MODE_DOUBLE)
+@@ -1212,7 +1213,11 @@ bool AArch64GenContext_t::fpr_store(IMLInstruction* imlInstruction, bool indexed
+ 		}
+ 		else
+ 		{
+-			fcvt(TEMP_FPR.SReg, dataDReg);
++			{
++				uint32_t sIdx = static_cast<uint32_t>(TEMP_FPR.SReg.getIdx());
++				uint32_t dIdx = static_cast<uint32_t>(dataDReg.getIdx());
++				dd(0x1E624000u | (dIdx << 5) | sIdx);
++			}
+ 			fmov(TEMP_GPR2.WReg, TEMP_FPR.SReg);
+ 		}
+ 		rev(TEMP_GPR2.WReg, TEMP_GPR2.WReg);
+@@ -1271,7 +1276,11 @@ void AArch64GenContext_t::fpr_r_r(IMLInstruction* imlInstruction)
+ 		{
+ 			fmov(regFprSReg, gpReg<WReg>(imlRegA));
+ 			// float to double
+-			fcvt(regFprDReg, regFprSReg);
++			{
++				uint32_t sIdx = static_cast<uint32_t>(regFprSReg.getIdx());
++				uint32_t dIdx = static_cast<uint32_t>(regFprDReg.getIdx());
++				dd(0x1E22C000u | (sIdx << 5) | dIdx);
++			}
+ 		}
+ 		else if (imlRegA.GetRegFormat() == IMLRegFormat::I64)
+ 		{
+@@ -1325,7 +1334,17 @@ void AArch64GenContext_t::fpr_r_r_r(IMLInstruction* imlInstruction)
+ 
+ 	if (imlInstruction->operation == PPCREC_IML_OP_FPR_MULTIPLY)
+ 	{
+-		fmul(regR, regA, regB);
++		if (imlInstruction->op_fpr_r_r_r.regR.GetRegFormat() == IMLRegFormat::F32)
++		{
++			SReg sR = fpReg<SReg>(imlInstruction->op_fpr_r_r_r.regR);
++			SReg sA = fpReg<SReg>(imlInstruction->op_fpr_r_r_r.regA);
++			SReg sB = fpReg<SReg>(imlInstruction->op_fpr_r_r_r.regB);
++			fmul(sR, sA, sB);
++		}
++		else
++		{
++			fmul(regR, regA, regB);
++		}
+ 	}
+ 	else if (imlInstruction->operation == PPCREC_IML_OP_FPR_ADD)
+ 	{
+@@ -1387,14 +1406,26 @@ void AArch64GenContext_t::fpr_r(IMLInstruction* imlInstruction)
+ 	else if (imlInstruction->operation == PPCREC_IML_OP_FPR_ROUND_TO_SINGLE_PRECISION_BOTTOM)
+ 	{
+ 		// convert to 32bit single
+-		fcvt(regRSReg, regRDReg);
++		{
++			uint32_t sIdx = static_cast<uint32_t>(regRSReg.getIdx());
++			uint32_t dIdx = static_cast<uint32_t>(regRDReg.getIdx());
++			dd(0x1E624000u | (dIdx << 5) | sIdx);
++		}
+ 		// convert back to 64bit double
+-		fcvt(regRDReg, regRSReg);
++		{
++			uint32_t sIdx = static_cast<uint32_t>(regRSReg.getIdx());
++			uint32_t dIdx = static_cast<uint32_t>(regRDReg.getIdx());
++			dd(0x1E22C000u | (sIdx << 5) | dIdx);
++		}
+ 	}
+ 	else if (imlInstruction->operation == PPCREC_IML_OP_FPR_EXPAND_F32_TO_F64)
+ 	{
+ 		// convert bottom to 64bit double
+-		fcvt(regRDReg, regRSReg);
++		{
++			uint32_t sIdx = static_cast<uint32_t>(regRSReg.getIdx());
++			uint32_t dIdx = static_cast<uint32_t>(regRDReg.getIdx());
++			dd(0x1E22C000u | (sIdx << 5) | dIdx);
++		}
+ 	}
+ 	else
+ 	{
 diff --git a/src/Cafe/HW/Espresso/Recompiler/PPCRecompiler.cpp b/src/Cafe/HW/Espresso/Recompiler/PPCRecompiler.cpp
-index 6125c7d..0d16d18 100644
+index 6125c7d..084d78b 100644
 --- a/src/Cafe/HW/Espresso/Recompiler/PPCRecompiler.cpp
 +++ b/src/Cafe/HW/Espresso/Recompiler/PPCRecompiler.cpp
-@@ -20,6 +20,8 @@
+@@ -20,6 +20,9 @@
  #include "BackendAArch64/BackendAArch64.h"
  #endif
  #include "util/highresolutiontimer/HighResolutionTimer.h"
 +#include "util/CemuProfiling.h"
 +#include "util/CemuThreadWatchdog.h"
++#include "util/CemuDiagV2.h"
  
  #define PPCREC_FORCE_SYNCHRONOUS_COMPILATION	0 // if 1, then function recompilation will block and execute on the thread that called PPCRecompiler_visitAddressNoBlock
  #define PPCREC_LOG_RECOMPILATION_RESULTS		0
-@@ -166,6 +168,12 @@ bool PPCRecompiler_ApplyIMLPasses(ppcImlGenContext_t& ppcImlGenContext);
+@@ -53,6 +56,21 @@ static std::mutex s_singleRecompilationMutex;
+ 
+ bool ppcRecompilerEnabled = false;
+ 
++namespace CemuDiagV2
++{
++    std::atomic<uint64_t> g_jitCount{0};
++    std::atomic<uint64_t> g_jitTotalNs{0};
++    std::atomic<uint64_t> g_jitMaxNs{0};
++    std::mutex g_jitTop5Mtx;
++    std::map<uint32_t, uint64_t> g_jitTop5Map;
++
++    std::atomic<uint64_t> g_vkDrawCount{0};
++    std::atomic<uint64_t> g_vkSubmitCount{0};
++    std::atomic<uint64_t> g_vkSubmitNs{0};
++    std::atomic<uint64_t> g_vkPresentCount{0};
++    std::atomic<uint64_t> g_vkPresentNs{0};
++}
++
+ void PPCRecompiler_recompileAtAddress(uint32 address);
+ 
+ // this function does never block and can fail if the recompiler lock cannot be acquired immediately
+@@ -166,6 +184,13 @@ bool PPCRecompiler_ApplyIMLPasses(ppcImlGenContext_t& ppcImlGenContext);
  
  PPCRecFunction_t* PPCRecompiler_recompileFunction(PPCFunctionBoundaryTracker::PPCRange_t range, std::set<uint32>& entryAddresses, std::vector<std::pair<MPTR, uint32>>& entryPointsOut, PPCFunctionBoundaryTracker& boundaryTracker)
  {
@@ -118,10 +245,11 @@ index 6125c7d..0d16d18 100644
 +#if CEMU_PROFILING
 +    CemuProfiling::ScopedTimer profilingTimer(CemuProfiling::Recompiler());
 +#endif
++    CemuDiagV2::ScopedJitTimer diagJitTimer(range.startAddress);
  	if (range.startAddress >= PPC_REC_CODE_AREA_END)
  	{
  		cemuLog_log(LogType::Force, "Attempting to recompile function outside of allowed code area");
-@@ -451,9 +459,68 @@ void PPCRecompiler_recompileAtAddress(uint32 address)
+@@ -451,9 +476,97 @@ void PPCRecompiler_recompileAtAddress(uint32 address)
  std::thread s_threadRecompiler;
  std::atomic_bool s_recompilerThreadStopSignal{false};
  
@@ -178,6 +306,35 @@ index 6125c7d..0d16d18 100644
 +        rate(fence.calls), avgMs(fence),
 +        rate(audio.calls), avgMs(audio),
 +        rate(audioLock.calls), avgMs(audioLock));
++
++    const uint64_t diagJitCount = CemuDiagV2::g_jitCount.exchange(0, std::memory_order_relaxed);
++    const uint64_t diagJitTotalNs = CemuDiagV2::g_jitTotalNs.exchange(0, std::memory_order_relaxed);
++    const uint64_t diagJitMaxNs = CemuDiagV2::g_jitMaxNs.exchange(0, std::memory_order_relaxed);
++    const double diagJitAvgMs = diagJitCount ? (static_cast<double>(diagJitTotalNs) / 1000000.0) / diagJitCount : 0.0;
++    const double diagJitMaxMs = static_cast<double>(diagJitMaxNs) / 1000000.0;
++    cemuLog_log(LogType::Force, "[JIT] n={} avg={:.3f}ms max={:.3f}ms",
++        diagJitCount, diagJitAvgMs, diagJitMaxMs);
++
++    std::vector<std::pair<uint32_t, uint64_t>> diagTop5;
++    {
++        std::lock_guard<std::mutex> lock(CemuDiagV2::g_jitTop5Mtx);
++        diagTop5.assign(CemuDiagV2::g_jitTop5Map.begin(), CemuDiagV2::g_jitTop5Map.end());
++        CemuDiagV2::g_jitTop5Map.clear();
++    }
++    std::sort(diagTop5.begin(), diagTop5.end(),
++        [](const auto& a, const auto& b) { return a.second > b.second; });
++    for (size_t i = 0; i < diagTop5.size() && i < 5; ++i)
++        cemuLog_log(LogType::Force, "[JIT TOP] rank={} pc=0x{:08X} count={}",
++            i, diagTop5[i].first, diagTop5[i].second);
++
++    const uint64_t diagVkDraw     = CemuDiagV2::g_vkDrawCount.exchange(0, std::memory_order_relaxed);
++    const uint64_t diagVkSubmit   = CemuDiagV2::g_vkSubmitCount.exchange(0, std::memory_order_relaxed);
++    const uint64_t diagVkSubmitNs = CemuDiagV2::g_vkSubmitNs.exchange(0, std::memory_order_relaxed);
++    const uint64_t diagVkPresent  = CemuDiagV2::g_vkPresentCount.exchange(0, std::memory_order_relaxed);
++    const uint64_t diagVkPresentNs= CemuDiagV2::g_vkPresentNs.exchange(0, std::memory_order_relaxed);
++    cemuLog_log(LogType::Force,
++        "[VK FLOW] draw={} submit={} submit_ns={} present={} present_ns={}",
++        diagVkDraw, diagVkSubmit, diagVkSubmitNs, diagVkPresent, diagVkPresentNs);
 +}
 +#endif
 +
@@ -190,7 +347,7 @@ index 6125c7d..0d16d18 100644
  #if PPCREC_FORCE_SYNCHRONOUS_COMPILATION
  	return;
  #endif
-@@ -462,7 +529,13 @@ void PPCRecompiler_thread()
+@@ -462,7 +575,13 @@ void PPCRecompiler_thread()
  	{
          if(s_recompilerThreadStopSignal)
              return;
@@ -205,11 +362,206 @@ index 6125c7d..0d16d18 100644
  		// asynchronous recompilation:
  		// 1) take address from queue
  		// 2) check if address is still marked as visited
+diff --git a/src/Cafe/HW/Espresso/Recompiler/PPCRecompilerIml.h b/src/Cafe/HW/Espresso/Recompiler/PPCRecompilerIml.h
+index bfb2aed..2f4d2a6 100644
+--- a/src/Cafe/HW/Espresso/Recompiler/PPCRecompilerIml.h
++++ b/src/Cafe/HW/Espresso/Recompiler/PPCRecompilerIml.h
+@@ -54,6 +54,8 @@ bool PPCRecompilerImlGen_FSEL(ppcImlGenContext_t* ppcImlGenContext, uint32 opcod
+ bool PPCRecompilerImlGen_FRSQRTE(ppcImlGenContext_t* ppcImlGenContext, uint32 opcode);
+ bool PPCRecompilerImlGen_FCTIWZ(ppcImlGenContext_t* ppcImlGenContext, uint32 opcode);
+ bool PPCRecompilerImlGen_PSQ_L(ppcImlGenContext_t* ppcImlGenContext, uint32 opcode, bool withUpdate);
++bool PPCRecompilerImlGen_PSQ_LX(ppcImlGenContext_t* ppcImlGenContext, uint32 opcode);
++bool PPCRecompilerImlGen_PSQ_STX(ppcImlGenContext_t* ppcImlGenContext, uint32 opcode);
+ bool PPCRecompilerImlGen_PSQ_ST(ppcImlGenContext_t* ppcImlGenContext, uint32 opcode, bool withUpdate);
+ bool PPCRecompilerImlGen_PS_MULSX(ppcImlGenContext_t* ppcImlGenContext, uint32 opcode, bool isVariant1);
+ bool PPCRecompilerImlGen_PS_MADDSX(ppcImlGenContext_t* ppcImlGenContext, uint32 opcode, bool isVariant1);
+diff --git a/src/Cafe/HW/Espresso/Recompiler/PPCRecompilerImlGen.cpp b/src/Cafe/HW/Espresso/Recompiler/PPCRecompilerImlGen.cpp
+index e76a53f..20edfc6 100644
+--- a/src/Cafe/HW/Espresso/Recompiler/PPCRecompilerImlGen.cpp
++++ b/src/Cafe/HW/Espresso/Recompiler/PPCRecompilerImlGen.cpp
+@@ -1975,6 +1975,16 @@ bool PPCRecompiler_decodePPCInstruction(ppcImlGenContext_t* ppcImlGenContext)
+ 				break;
+ 			}
+ 			break;
++		case 6: // PSQ_LX
++			if (!PPCRecompilerImlGen_PSQ_LX(ppcImlGenContext, opcode))
++				unsupportedInstructionFound = true;
++			ppcImlGenContext->hasFPUInstruction = true;
++			break;
++		case 7: // PSQ_STX
++			if (!PPCRecompilerImlGen_PSQ_STX(ppcImlGenContext, opcode))
++				unsupportedInstructionFound = true;
++			ppcImlGenContext->hasFPUInstruction = true;
++			break;
+ 		case 8: //Sub category - move/negate
+ 			switch (PPC_getBits(opcode, 25, 5))
+ 			{
+@@ -2973,7 +2983,10 @@ bool PPCIMLGen_FillBasicBlock(ppcImlGenContext_t& ppcImlGenContext, PPCBasicBloc
+ 
+ 		if (PPCRecompiler_decodePPCInstruction(&ppcImlGenContext))
+ 		{
+-			cemuLog_logDebug(LogType::Force, "PPCRecompiler: Unsupported instruction at 0x{:08x}", addressOfCurrentInstruction);
++			const uint32 rawOpcode = *(ppcImlGenContext.currentInstruction - 1);
++			const uint32 opcode = CPU_swapEndianU32(rawOpcode);
++			const uint32 primary = (opcode >> 26) & 0x3F;
++			cemuLog_log(LogType::Force, "[PPCREC UNSUPPORTED] PC=0x{:08X} RAW=0x{:08X} OPCODE=0x{:08X} PRIMARY={}", addressOfCurrentInstruction, rawOpcode, opcode, primary);
+ 			ppcImlGenContext.currentOutputSegment = nullptr;
+ 			return false;
+ 		}
+diff --git a/src/Cafe/HW/Espresso/Recompiler/PPCRecompilerImlGenFPU.cpp b/src/Cafe/HW/Espresso/Recompiler/PPCRecompilerImlGenFPU.cpp
+index 19ad257..784cecd 100644
+--- a/src/Cafe/HW/Espresso/Recompiler/PPCRecompilerImlGenFPU.cpp
++++ b/src/Cafe/HW/Espresso/Recompiler/PPCRecompilerImlGenFPU.cpp
+@@ -947,6 +947,129 @@ void PPCRecompilerImlGen_EmitPSQStoreCase(ppcImlGenContext_t* ppcImlGenContext,
+ }
+ 
+ // PSQ_ST and PSQ_STU
++// PSQ_LX - Paired Single Quantized Load Indexed
++bool PPCRecompilerImlGen_PSQ_LX(ppcImlGenContext_t* ppcImlGenContext, uint32 opcode)
++{
++	sint32 frD = (opcode >> 21) & 0x1F;
++	sint32 rA = (opcode >> 16) & 0x1F;
++	sint32 rB = (opcode >> 11) & 0x1F;
++
++	sint32 gqrIndex = (opcode >> 7) & 0x7;
++	bool readPS1 = (opcode & (1 << 10)) == 0;
++
++	IMLReg gprB = PPCRecompilerImlGen_loadRegister(ppcImlGenContext, PPCREC_NAME_R0 + rB);
++	IMLReg gprA = gprB;
++
++	if (rA != 0)
++	{
++		IMLReg gprBase = PPCRecompilerImlGen_loadRegister(ppcImlGenContext, PPCREC_NAME_R0 + rA);
++		gprA = PPCRecompilerImlGen_loadRegister(ppcImlGenContext, PPCREC_NAME_TEMPORARY + 3);
++		ppcImlGenContext->emitInst().make_r_r_r(PPCREC_IML_OP_ADD, gprA, gprBase, gprB);
++	}
++
++	DefinePS0(fprDPS0, frD);
++	DefinePS1(fprDPS1, frD);
++
++	if (!readPS1)
++	{
++		ppcImlGenContext->emitInst().make_fpr_r(PPCREC_IML_OP_FPR_LOAD_ONE, fprDPS1);
++	}
++
++	uint32 knownGQRValue = 0;
++
++	if (!PPCRecompiler_isUGQRValueKnown(ppcImlGenContext, gqrIndex, knownGQRValue))
++	{
++		IMLReg gqrRegister = PPCRecompilerImlGen_loadRegister(ppcImlGenContext, PPCREC_NAME_SPR0 + SPR_UGQR0 + gqrIndex);
++		IMLReg loadTypeReg = PPCRecompilerImlGen_loadRegister(ppcImlGenContext, PPCREC_NAME_TEMPORARY + 0);
++
++		ppcImlGenContext->emitInst().make_r_r_s32(PPCREC_IML_OP_RIGHT_SHIFT_U, loadTypeReg, gqrRegister, 16);
++		ppcImlGenContext->emitInst().make_r_r_s32(PPCREC_IML_OP_AND, loadTypeReg, loadTypeReg, 0x7);
++
++		IMLSegment* caseSegment[5];
++		sint32 compareValues[5] = { 0, 4, 5, 6, 7 };
++
++		PPCIMLGen_CreateSegmentBranchedPathMultiple(*ppcImlGenContext, *ppcImlGenContext->currentBasicBlock, caseSegment, loadTypeReg, compareValues, 5, 0);
++
++		for (sint32 i = 0; i < 5; i++)
++		{
++			IMLRedirectInstOutput outputToCase(ppcImlGenContext, caseSegment[i]);
++			PPCRecompilerImlGen_EmitPSQLoadCase(ppcImlGenContext, gqrIndex, static_cast<Espresso::PSQ_LOAD_TYPE>(compareValues[i]), readPS1, gprA, 0, fprDPS0, fprDPS1);
++			caseSegment[i]->AppendInstruction()->make_jump();
++		}
++		return true;
++	}
++
++	Espresso::PSQ_LOAD_TYPE type = static_cast<Espresso::PSQ_LOAD_TYPE>((knownGQRValue >> 16) & 0x7);
++	sint32 scale = (knownGQRValue >> 24) & 0x3F;
++
++	cemu_assert_debug(scale == 0);
++	if (scale != 0) return false;
++
++	if (type == Espresso::PSQ_LOAD_TYPE::TYPE_UNUSED1 || type == Espresso::PSQ_LOAD_TYPE::TYPE_UNUSED2 || type == Espresso::PSQ_LOAD_TYPE::TYPE_UNUSED3) return false;
++
++	PPCRecompilerImlGen_EmitPSQLoadCase(ppcImlGenContext, gqrIndex, type, readPS1, gprA, 0, fprDPS0, fprDPS1);
++	return true;
++}
++
++// PSQ_STX - Paired Single Quantized Store Indexed
++bool PPCRecompilerImlGen_PSQ_STX(ppcImlGenContext_t* ppcImlGenContext, uint32 opcode)
++{
++	sint32 frS = (opcode >> 21) & 0x1F;
++	sint32 rA = (opcode >> 16) & 0x1F;
++	sint32 rB = (opcode >> 11) & 0x1F;
++
++	sint32 gqrIndex = (opcode >> 7) & 0x7;
++	bool storePS1 = (opcode & (1 << 10)) == 0;
++
++	IMLReg gprB = PPCRecompilerImlGen_loadRegister(ppcImlGenContext, PPCREC_NAME_R0 + rB);
++	IMLReg gprA = gprB;
++
++	if (rA != 0)
++	{
++		IMLReg gprBase = PPCRecompilerImlGen_loadRegister(ppcImlGenContext, PPCREC_NAME_R0 + rA);
++		gprA = PPCRecompilerImlGen_loadRegister(ppcImlGenContext, PPCREC_NAME_TEMPORARY + 3);
++		ppcImlGenContext->emitInst().make_r_r_r(PPCREC_IML_OP_ADD, gprA, gprBase, gprB);
++	}
++
++	DefinePS0(fprDPS0, frS);
++
++	IMLReg fprDPS1 = storePS1 ? _GetFPRRegPS1(ppcImlGenContext, frS) : IMLREG_INVALID;
++
++	uint32 gqrValue = 0;
++
++	if (!PPCRecompiler_isUGQRValueKnown(ppcImlGenContext, gqrIndex, gqrValue))
++	{
++		IMLReg gqrRegister = PPCRecompilerImlGen_loadRegister(ppcImlGenContext, PPCREC_NAME_SPR0 + SPR_UGQR0 + gqrIndex);
++		IMLReg storeTypeReg = PPCRecompilerImlGen_loadRegister(ppcImlGenContext, PPCREC_NAME_TEMPORARY + 0);
++
++		ppcImlGenContext->emitInst().make_r_r_s32(PPCREC_IML_OP_AND, storeTypeReg, gqrRegister, 0x7);
++
++		IMLSegment* caseSegment[5];
++		sint32 compareValues[5] = { 0, 4, 5, 6, 7 };
++
++		PPCIMLGen_CreateSegmentBranchedPathMultiple(*ppcImlGenContext, *ppcImlGenContext->currentBasicBlock, caseSegment, storeTypeReg, compareValues, 5, 0);
++
++		for (sint32 i = 0; i < 5; i++)
++		{
++			IMLRedirectInstOutput outputToCase(ppcImlGenContext, caseSegment[i]);
++			PPCRecompilerImlGen_EmitPSQStoreCase(ppcImlGenContext, gqrIndex, static_cast<Espresso::PSQ_LOAD_TYPE>(compareValues[i]), storePS1, gprA, 0, fprDPS0, fprDPS1);
++			ppcImlGenContext->emitInst().make_jump();
++		}
++		return true;
++	}
++
++	Espresso::PSQ_LOAD_TYPE type = static_cast<Espresso::PSQ_LOAD_TYPE>(gqrValue & 0x7);
++	sint32 scale = (gqrValue >> 8) & 0x3F;
++
++	cemu_assert_debug(scale == 0);
++	if (scale != 0) return false;
++
++	if (type == Espresso::PSQ_LOAD_TYPE::TYPE_UNUSED1 || type == Espresso::PSQ_LOAD_TYPE::TYPE_UNUSED2 || type == Espresso::PSQ_LOAD_TYPE::TYPE_UNUSED3) return false;
++
++	PPCRecompilerImlGen_EmitPSQStoreCase(ppcImlGenContext, gqrIndex, type, storePS1, gprA, 0, fprDPS0, fprDPS1);
++	return true;
++}
++
+ bool PPCRecompilerImlGen_PSQ_ST(ppcImlGenContext_t* ppcImlGenContext, uint32 opcode, bool withUpdate)
+ {
+ 	int rA, frD;
+@@ -990,7 +1113,7 @@ bool PPCRecompilerImlGen_PSQ_ST(ppcImlGenContext_t* ppcImlGenContext, uint32 opc
+ 	}
+ 
+ 	Espresso::PSQ_LOAD_TYPE type = static_cast<Espresso::PSQ_LOAD_TYPE>((gqrValue >> 0) & 0x7);
+-	sint32 scale = (gqrValue >> 24) & 0x3F;
++	sint32 scale = (gqrValue >> 8) & 0x3F;
+ 	cemu_assert_debug(scale == 0); // known GQR values always use a scale of 0 (1.0f)
+ 
+ 	if (type == Espresso::PSQ_LOAD_TYPE::TYPE_UNUSED1 ||
 diff --git a/src/Cafe/HW/Latte/Renderer/Vulkan/VulkanRenderer.cpp b/src/Cafe/HW/Latte/Renderer/Vulkan/VulkanRenderer.cpp
-index f6d7228..93c328c 100644
+index f6d7228..d82e93c 100644
 --- a/src/Cafe/HW/Latte/Renderer/Vulkan/VulkanRenderer.cpp
 +++ b/src/Cafe/HW/Latte/Renderer/Vulkan/VulkanRenderer.cpp
-@@ -2180,7 +2180,31 @@ void VulkanRenderer::WaitForNextFinishedCommandBuffer()
+@@ -1,4 +1,5 @@
+ #include "Cafe/HW/Latte/Renderer/Vulkan/VulkanRenderer.h"
++#include "util/CemuDiagV2.h"
+ #include "Cafe/HW/Latte/Renderer/Vulkan/VulkanAPI.h"
+ #include "Cafe/HW/Latte/Renderer/Vulkan/LatteTextureVk.h"
+ #include "Cafe/HW/Latte/Renderer/Vulkan/RendererShaderVk.h"
+@@ -2180,7 +2181,31 @@ void VulkanRenderer::WaitForNextFinishedCommandBuffer()
  {
  	cemu_assert_debug(m_commandBufferSyncIndex != m_commandBufferIndex);
  	// wait on least recently submitted command buffer
@@ -242,30 +594,45 @@ index f6d7228..93c328c 100644
  	if (result == VK_TIMEOUT)
  	{
  		cemuLog_log(LogType::Force, "vkWaitForFences: Returned VK_TIMEOUT on infinite fence");
-@@ -2195,6 +2219,9 @@ void VulkanRenderer::WaitForNextFinishedCommandBuffer()
+@@ -2195,6 +2220,10 @@ void VulkanRenderer::WaitForNextFinishedCommandBuffer()
  
  void VulkanRenderer::SubmitCommandBuffer(VkSemaphore signalSemaphore, VkSemaphore waitSemaphore)
  {
 +#if CEMU_THREAD_WATCHDOG
 +    CemuWatchdog::Touch(CemuWatchdog::Renderer, CemuWatchdog::Loop);
 +#endif
++	CemuDiagV2::g_vkSubmitCount.fetch_add(1, std::memory_order_relaxed);
  	draw_endRenderPass();
  
  	occlusionQuery_notifyEndCommandBuffer();
-@@ -3072,6 +3099,9 @@ bool VulkanRenderer::UpdateSwapchainProperties(bool mainWindow)
+@@ -2233,7 +2262,9 @@ void VulkanRenderer::SubmitCommandBuffer(VkSemaphore signalSemaphore, VkSemaphor
+ 	submitInfo.pWaitDstStageMask = semWaitStageMask;
+ 	submitInfo.pWaitSemaphores = waitSemArray;
+ 
++	const auto diagSubmitStart = std::chrono::steady_clock::now();
+ 	const VkResult result = vkQueueSubmit(m_graphicsQueue, 1, &submitInfo, m_cmd_buffer_fences[m_commandBufferIndex]);
++	CemuDiagV2::g_vkSubmitNs.fetch_add(static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - diagSubmitStart).count()), std::memory_order_relaxed);
+ 	if (result != VK_SUCCESS)
+ 		UnrecoverableError(fmt::format("failed to submit command buffer. Error {}", result).c_str());
+ 	m_numSubmittedCmdBuffers++;
+@@ -3072,6 +3103,10 @@ bool VulkanRenderer::UpdateSwapchainProperties(bool mainWindow)
  
  void VulkanRenderer::SwapBuffer(bool mainWindow)
  {
 +#if CEMU_THREAD_WATCHDOG
 +    CemuWatchdog::Touch(CemuWatchdog::Renderer, CemuWatchdog::Present);
 +#endif
++	CemuDiagV2::g_vkPresentCount.fetch_add(1, std::memory_order_relaxed);
  	if(!AcquireNextSwapchainImage(mainWindow))
  		return;
  
-@@ -3127,6 +3157,10 @@ void VulkanRenderer::SwapBuffer(bool mainWindow)
+@@ -3126,7 +3161,13 @@ void VulkanRenderer::SwapBuffer(bool mainWindow)
+ 		}
  	}
  
++	const auto diagPresentStart = std::chrono::steady_clock::now();
  	VkResult result = vkQueuePresentKHR(m_presentQueue, &presentInfo);
++	CemuDiagV2::g_vkPresentNs.fetch_add(static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - diagPresentStart).count()), std::memory_order_relaxed);
 +
 +#if CEMU_THREAD_WATCHDOG
 +    CemuWatchdog::Touch(CemuWatchdog::Renderer, CemuWatchdog::Loop);
@@ -274,17 +641,18 @@ index f6d7228..93c328c 100644
  #if BOOST_PLAT_ANDROID
  		&& result != VK_ERROR_SURFACE_LOST_KHR
 diff --git a/src/Cafe/HW/Latte/Renderer/Vulkan/VulkanRendererCore.cpp b/src/Cafe/HW/Latte/Renderer/Vulkan/VulkanRendererCore.cpp
-index a681418..b4e009b 100644
+index a681418..1684a72 100644
 --- a/src/Cafe/HW/Latte/Renderer/Vulkan/VulkanRendererCore.cpp
 +++ b/src/Cafe/HW/Latte/Renderer/Vulkan/VulkanRendererCore.cpp
-@@ -1,4 +1,6 @@
+@@ -1,4 +1,7 @@
  #include "Cafe/HW/Latte/Renderer/Vulkan/VulkanRenderer.h"
++#include "util/CemuDiagV2.h"
 +#include "util/CemuProfiling.h"
 +#include "util/CemuThreadWatchdog.h"
  #include "Cafe/HW/Latte/Renderer/Vulkan/VulkanAPI.h"
  #include "Cafe/HW/Latte/Renderer/Vulkan/LatteTextureVk.h"
  #include "Cafe/HW/Latte/Renderer/Vulkan/RendererShaderVk.h"
-@@ -1452,6 +1454,9 @@ void VulkanRenderer::draw_execute(uint32 baseVertex, uint32 baseInstance, uint32
+@@ -1452,6 +1455,9 @@ void VulkanRenderer::draw_execute(uint32 baseVertex, uint32 baseInstance, uint32
  	if (m_state.currentPipeline != vkObjPipeline->GetPipeline())
  	{
  		vkCmdBindPipeline(m_state.currentCommandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, vkObjPipeline->GetPipeline());
@@ -294,10 +662,11 @@ index a681418..b4e009b 100644
  		vkObjPipeline->flagForCurrentCommandBuffer();
  		m_state.currentPipeline = vkObjPipeline->GetPipeline();
  		// depth bias
-@@ -1602,6 +1607,9 @@ void VulkanRenderer::draw_endSequence()
+@@ -1602,6 +1608,10 @@ void VulkanRenderer::draw_endSequence()
  		LatteRenderTarget_trackUpdates();
  	bool hasReadback = LatteTextureReadback_Update();
  	m_recordedDrawcalls++;
++	CemuDiagV2::g_vkDrawCount.fetch_add(1, std::memory_order_relaxed);
 +#if CEMU_PROFILING
 +    CemuProfiling::Drawcalls().AddItems();
 +#endif
@@ -460,9 +829,258 @@ index 6cb1599..cb8ae31 100644
  		constexpr static auto kTimeout = std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::milliseconds(((IAudioAPI::kBlockCount * 3) / 4) * (AX_FRAMES_PER_GROUP * 3)));
  		constexpr static auto kWaitDuration = std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::milliseconds(3));
  		constexpr static auto kWaitDurationFast = std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::microseconds(2900));
-diff --git a/mod/src/util/CemuProfiling.h b/src/util/CemuProfiling.h
+diff --git a/src/Cafe/OS/libs/snd_user/snd_user.cpp b/src/Cafe/OS/libs/snd_user/snd_user.cpp
+index 58e8f4b..c254087 100644
+--- a/src/Cafe/OS/libs/snd_user/snd_user.cpp
++++ b/src/Cafe/OS/libs/snd_user/snd_user.cpp
+@@ -301,52 +301,116 @@ namespace snd_user
+ 			_MIXChannelResetRmt(channel, i);
+ 	}
+ 
+-	void _MIXControl_SetDevicePan(MixControl* control, int device_type, sint16 channels[])
++	void _MIXControl_SetDevicePan(
++		MixControl* control,
++		int device_type,
++		sint16 channels[])
+ 	{
+-		const auto pandiff = 0x7F - control->pan;
+-		const auto spandiff = 0x7F - control->span;
++		if (!control || !channels)
++		{
++			cemuLog_log(
++				LogType::Force,
++				"[MIX PAN] Invalid control/channels pointer"
++			);
++			return;
++		}
++
++		if (device_type != AX_DEV_TV &&
++			device_type != AX_DEV_DRC)
++		{
++			cemuLog_log(
++				LogType::Force,
++				"[MIX PAN] Invalid device type: {}",
++				device_type
++			);
++			return;
++		}
++
++		const uint32 pan =
++			control->pan < 0 ? 0 :
++			control->pan > 0x7F ? 0x7F :
++			static_cast<uint32>(control->pan);
++
++		const uint32 span =
++			control->span < 0 ? 0 :
++			control->span > 0x7F ? 0x7F :
++			static_cast<uint32>(control->span);
++
++		const uint32 pandiff = 0x7F - pan;
++		const uint32 spandiff = 0x7F - span;
+ 
+ 		if (device_type == AX_DEV_TV)
+ 		{
+-			const uint32 sound_mode = g_snd_user_data.device_info.tv_sound_mode;
++			memset(
++				channels,
++				0,
++				sizeof(sint16) * AX_TV_CHANNEL_COUNT
++			);
++
++			const uint32 sound_mode =
++				g_snd_user_data.device_info.tv_sound_mode;
++
+ 			if (sound_mode == 3)
+ 			{
+-				channels[0] = g_snd_user_data.pan_values_low[control->pan];
+-				channels[1] = g_snd_user_data.pan_values_low[pandiff];
+-				channels[2] = g_snd_user_data.pan_values_high[pandiff];
+-				channels[3] = g_snd_user_data.pan_values_high[control->pan];
+-				channels[4] = g_snd_user_data.pan_values_high[spandiff];
+-				channels[5] = g_snd_user_data.pan_values_high[control->span];
++				channels[0] =
++					g_snd_user_data.pan_values_low[pan];
++
++				channels[1] =
++					g_snd_user_data.pan_values_low[pandiff];
++
++				channels[2] =
++					g_snd_user_data.pan_values_high[pandiff];
++
++				channels[3] =
++					g_snd_user_data.pan_values_high[pan];
++
++				channels[4] =
++					g_snd_user_data.pan_values_high[spandiff];
++
++				channels[5] =
++					g_snd_user_data.pan_values_high[span];
+ 			}
+ 			else if (sound_mode != 4)
+ 			{
+-				channels[0] = g_snd_user_data.pan_values[control->pan];
+-				channels[1] = g_snd_user_data.pan_values[pandiff];
++				channels[0] =
++					g_snd_user_data.pan_values[pan];
++
++				channels[1] =
++					g_snd_user_data.pan_values[pandiff];
++
+ 				channels[2] = 0;
+ 				channels[3] = 0;
+-				channels[4] = g_snd_user_data.pan_values[spandiff];
+-				channels[5] = g_snd_user_data.pan_values[control->span];
++
++				channels[4] =
++					g_snd_user_data.pan_values[spandiff];
++
++				channels[5] =
++					g_snd_user_data.pan_values[span];
+ 			}
+ 			else
+ 			{
+-				uint32 pan = 0x7F;
+-				if (((uint32)control->pan >> 1) < 0x7F)
+-					pan = (uint32)control->pan >> 1;
++				uint32 p = pan >> 1;
+ 
+-				channels[0] = g_snd_user_data.pan_values[pan] + g_snd_user_data.pan_values[spandiff];
++				if (p >= 0x7F)
++					p = 0x7F;
+ 
+-				uint32 span = 0x7F;
+-				if (((uint32)pandiff >> 1) < 0x7E)
+-					span = (uint32)pandiff >> 1;
++				channels[0] =
++					g_snd_user_data.pan_values[p] +
++					g_snd_user_data.pan_values[spandiff];
+ 
+-				channels[1] = g_snd_user_data.pan_values[span] + g_snd_user_data.pan_values[spandiff];
++				uint32 s = pandiff >> 1;
+ 
+-				// TODO
++				if (s >= 0x7E)
++					s = 0x7F;
++
++				channels[1] =
++					g_snd_user_data.pan_values[s] +
++					g_snd_user_data.pan_values[spandiff];
+ 			}
+ 		}
+ 		else if (device_type == AX_DEV_DRC)
+ 		{
+-			// TODO
++			// Preserve existing DRC implementation status.
+ 		}
+ 	}
+ 
+@@ -766,11 +830,40 @@ namespace snd_user
+ 		cemu_assert_debug(voice);
+ 		cemu_assert_debug(control);
+ 
+-		AXVoiceBegin(voice);
++		if (!voice || !control)
++		{
++			cemuLog_log(LogType::Force, "[MIX INIT] Null voice/control pointer");
++			return;
++		}
++
++		if (!g_snd_user_data.initialized || g_snd_user_data.max_voices <= 0)
++		{
++			cemuLog_log(LogType::Force, "[MIX INIT] Sound system not initialized");
++			return;
++		}
++
++		if (device_type >= AX_DEV_COUNT)
++			return;
++
++		if ((device_type == AX_DEV_TV && index != 0) ||
++			(device_type == AX_DEV_DRC && index >= AX_MAX_NUM_DRC) ||
++			(device_type == AX_DEV_RMT && index >= AX_MAX_NUM_RMT))
++		{
++			cemuLog_log(LogType::Force, "[MIX INIT] Invalid device index: {} / {}", device_type, index);
++			return;
++		}
+ 
+ 		const uint32 voice_index = voice->index;
+-		auto& channel = g_snd_user_data.mix_channel[voice_index];
+ 
++		if (voice_index >= static_cast<uint32>(g_snd_user_data.max_voices))
++		{
++			cemuLog_log(LogType::Force, "[MIX INIT] Invalid voice index: {} max={}", voice_index, g_snd_user_data.max_voices);
++			return;
++		}
++
++		AXVoiceBegin(voice);
++
++		auto& channel = g_snd_user_data.mix_channel[voice_index];
+ 		channel.voice = voice;
+ 
+ 		if (device_type == AX_DEV_TV)
+diff --git a/src/util/CemuDiagV2.h b/src/util/CemuDiagV2.h
 new file mode 100644
-index 0000000..1d115a4
+index 0000000..1111111
+--- /dev/null
++++ b/src/util/CemuDiagV2.h
+@@ -0,0 +1,55 @@
++#pragma once
++
++#include <algorithm>
++#include <atomic>
++#include <chrono>
++#include <cstdint>
++#include <map>
++#include <mutex>
++#include <utility>
++#include <vector>
++
++namespace CemuDiagV2
++{
++    extern std::atomic<uint64_t> g_jitCount;
++    extern std::atomic<uint64_t> g_jitTotalNs;
++    extern std::atomic<uint64_t> g_jitMaxNs;
++    extern std::mutex g_jitTop5Mtx;
++    extern std::map<uint32_t, uint64_t> g_jitTop5Map;
++
++    extern std::atomic<uint64_t> g_vkDrawCount;
++    extern std::atomic<uint64_t> g_vkSubmitCount;
++    extern std::atomic<uint64_t> g_vkSubmitNs;
++    extern std::atomic<uint64_t> g_vkPresentCount;
++    extern std::atomic<uint64_t> g_vkPresentNs;
++
++    class ScopedJitTimer
++    {
++    public:
++        explicit ScopedJitTimer(uint32_t ppcAddress)
++            : m_ppcAddress(ppcAddress), m_start(std::chrono::steady_clock::now()) {}
++
++        ~ScopedJitTimer()
++        {
++            const auto elapsedNs = std::chrono::duration_cast<std::chrono::nanoseconds>(
++                std::chrono::steady_clock::now() - m_start).count();
++            const uint64_t ns = static_cast<uint64_t>(elapsedNs);
++            g_jitCount.fetch_add(1, std::memory_order_relaxed);
++            g_jitTotalNs.fetch_add(ns, std::memory_order_relaxed);
++            uint64_t prevMax = g_jitMaxNs.load(std::memory_order_relaxed);
++            while (ns > prevMax && !g_jitMaxNs.compare_exchange_weak(
++                       prevMax, ns, std::memory_order_relaxed)) {}
++            {
++                std::lock_guard<std::mutex> lock(g_jitTop5Mtx);
++                g_jitTop5Map[m_ppcAddress]++;
++            }
++        }
++
++        ScopedJitTimer(const ScopedJitTimer&) = delete;
++        ScopedJitTimer& operator=(const ScopedJitTimer&) = delete;
++
++    private:
++        uint32_t m_ppcAddress;
++        std::chrono::steady_clock::time_point m_start;
++    };
++}
+diff --git a/src/util/CemuProfiling.h b/src/util/CemuProfiling.h
+new file mode 100644
+index 0000000..1111111
 --- /dev/null
 +++ b/src/util/CemuProfiling.h
 @@ -0,0 +1,96 @@
@@ -562,9 +1180,9 @@ index 0000000..1d115a4
 +    }
 +}
 +#endif
-diff --git a/mod/src/util/CemuThreadWatchdog.h b/src/util/CemuThreadWatchdog.h
+diff --git a/src/util/CemuThreadWatchdog.h b/src/util/CemuThreadWatchdog.h
 new file mode 100644
-index 0000000..59c8471
+index 0000000..1111111
 --- /dev/null
 +++ b/src/util/CemuThreadWatchdog.h
 @@ -0,0 +1,119 @@
@@ -687,4 +1305,3 @@ index 0000000..59c8471
 +}
 +
 +#endif
-
