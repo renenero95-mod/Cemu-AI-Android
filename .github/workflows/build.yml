@@ -1,6 +1,3 @@
-permissions:
-  contents: write
-
 name: Build Cemu Android APK with AI Patch
 
 on:
@@ -62,15 +59,3 @@ jobs:
         name: Cemu-AI-Mod-APK
         path: Cemu/**/*.apk
 
-    - name: Create GitHub Release
-      if: success()
-      uses: softprops/action-gh-release@v2
-      with:
-        tag_name: latest
-        name: "Cemu AI Mod (Latest Build)"
-        body: |
-          Build automatica dal commit ${{ github.sha }}.
-          Basata su Cemu (MPL 2.0) e SSimco/Cemu.
-        files: Cemu/**/*.apk
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
