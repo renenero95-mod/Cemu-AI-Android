@@ -200,7 +200,7 @@ index 2555101..0d1c6b9 100644
  	else
  	{
 diff --git a/src/Cafe/HW/Espresso/Recompiler/PPCRecompiler.cpp b/src/Cafe/HW/Espresso/Recompiler/PPCRecompiler.cpp
-index 6125c7d..5200b07 100644
+index 6125c7d..98e2dea 100644
 --- a/src/Cafe/HW/Espresso/Recompiler/PPCRecompiler.cpp
 +++ b/src/Cafe/HW/Espresso/Recompiler/PPCRecompiler.cpp
 @@ -20,6 +20,9 @@
@@ -446,7 +446,19 @@ index 6125c7d..5200b07 100644
  		// asynchronous recompilation:
  		// 1) take address from queue
  		// 2) check if address is still marked as visited
-@@ -611,6 +751,8 @@ void PPCRecompiler_invalidateRange(uint32 startAddr, uint32 endAddr)
+@@ -477,6 +617,11 @@ void PPCRecompiler_thread()
+ 			}
+ 			auto enterAddress = PPCRecompilerState.targetQueue.front();
+ 			PPCRecompilerState.targetQueue.pop();
++			if ((enterAddress & 0xFFFF0000u) == 0x06750000u)
++				cemuLog_log(LogType::Force, "[POP-0675] addr=0x{:08X} queue_size={}", enterAddress, PPCRecompilerState.targetQueue.size());
++			static std::atomic<uint32> popCount{0};
++			if ((popCount.fetch_add(1, std::memory_order_relaxed) % 1000) == 0)
++				cemuLog_log(LogType::Force, "[QUEUE] size={} total_pop={}", PPCRecompilerState.targetQueue.size(), popCount.load());
+ 
+ 			auto funcPtr = ppcRecompilerInstanceData->ppcRecompilerDirectJumpTable[enterAddress / 4];
+ 			if (funcPtr != PPCRecompiler_leaveRecompilerCode_visited)
+@@ -611,6 +756,8 @@ void PPCRecompiler_invalidateRange(uint32 startAddr, uint32 endAddr)
  		return;
  	if (startAddr >= PPC_REC_CODE_AREA_SIZE)
  		return;
