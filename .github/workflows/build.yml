@@ -60,7 +60,7 @@ jobs:
       uses: actions/upload-artifact@v4
       with:
         name: Cemu-AI-Mod-APK
-        path: Cemu/**/build/outputs/apk/debug/*.apk
+        path: Cemu/**/build/outputs/apk/release/*.apk
 
     - name: Create GitHub Release
       if: success()
@@ -71,6 +71,6 @@ jobs:
         body: |
           Build automatica dal commit ${{ github.sha }}.
           Basata su Cemu (MPL 2.0) e SSimco/Cemu.
-        files: Cemu/**/build/outputs/apk/debug/*.apk
+        files: Cemu/**/build/outputs/apk/release/*.apk
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
