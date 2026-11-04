@@ -51,11 +51,11 @@ jobs:
         GRADLEW_FILE=$(find Cemu -name "gradlew" | head -n 1)
         cd $(dirname "$GRADLEW_FILE")
         chmod +x gradlew
-        ./gradlew assembleRelease -Pandroid.injected.build.api=34 -DCMAKE_BUILD_TYPE=Release
+        ./gradlew assembleDebug -Pandroid.injected.cmake.arguments="-DCMAKE_BUILD_TYPE=RelWithDebInfo"
 
     - name: Upload APK
       uses: actions/upload-artifact@v4
       with:
         name: Cemu-AI-Mod-APK
-        path: Cemu/**/*.apk
+        path: Cemu/**/build/outputs/apk/debug/*.apk
 
