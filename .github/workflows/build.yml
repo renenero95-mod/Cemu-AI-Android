@@ -66,8 +66,8 @@ jobs:
       if: success()
       uses: softprops/action-gh-release@v2
       with:
-        tag_name: build-${{ github.run_number }}
-        name: "Cemu AI Mod Build ${{ github.run_number }}"
+        tag_name: latest
+        name: "Cemu AI Mod (Latest Build)"
         body: |
           Build automatica dal commit ${{ github.sha }}.
           Basata su Cemu (MPL 2.0) e SSimco/Cemu.
