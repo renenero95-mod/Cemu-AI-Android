@@ -200,7 +200,7 @@ index 2555101..0d1c6b9 100644
  	else
  	{
 diff --git a/src/Cafe/HW/Espresso/Recompiler/PPCRecompiler.cpp b/src/Cafe/HW/Espresso/Recompiler/PPCRecompiler.cpp
-index 6125c7d..a06362f 100644
+index 6125c7d..5200b07 100644
 --- a/src/Cafe/HW/Espresso/Recompiler/PPCRecompiler.cpp
 +++ b/src/Cafe/HW/Espresso/Recompiler/PPCRecompiler.cpp
 @@ -20,6 +20,9 @@
@@ -303,7 +303,29 @@ index 6125c7d..a06362f 100644
  	if (aarch64GenerationSuccess == false)
  	{
  		return nullptr;
-@@ -416,6 +452,7 @@ bool PPCRecompiler_makeRecompiledFunctionActive(uint32 initialEntryPoint, PPCFun
+@@ -395,12 +431,21 @@ bool PPCRecompiler_makeRecompiledFunctionActive(uint32 initialEntryPoint, PPCFun
+ 	// therefore we reset all addresses that are still marked as visited (but not recompiled)
+ 	// we dont remove the points from the queue but any address thats not marked as visited won't get recompiled
+ 	// if they are reachable, the interpreter will queue them again
++	if (range.startAddress <= 0x0675FFFFu && (range.startAddress + range.length) >= 0x06750000u)
++		cemuLog_log(LogType::Force, "[MAKE-ACTIVE-CONTAINS-0675] start=0x{:08X} len=0x{:X} end=0x{:08X}", range.startAddress, range.length, range.startAddress + range.length);
++	uint32 resetCount0675 = 0;
+ 	for (uint32 v = range.startAddress; v <= (range.startAddress + range.length); v += 4)
+ 	{
+ 		auto funcPtr = ppcRecompilerInstanceData->ppcRecompilerDirectJumpTable[v / 4];
+ 		if (funcPtr == PPCRecompiler_leaveRecompilerCode_visited)
++		{
+ 			ppcRecompilerInstanceData->ppcRecompilerDirectJumpTable[v / 4] = PPCRecompiler_leaveRecompilerCode_unvisited;
++			if ((v & 0xFFFF0000u) == 0x06750000u)
++				resetCount0675++;
++		}
+ 	}
++	if (resetCount0675 > 0)
++		cemuLog_log(LogType::Force, "[RESET-0675] reset {} entries in range 0x{:08X}-0x{:08X}", resetCount0675, range.startAddress, range.startAddress + range.length);
+ 
+ 	// register ranges
+ 	for (auto& r : ppcRecFunc->list_ranges)
+@@ -416,6 +461,7 @@ bool PPCRecompiler_makeRecompiledFunctionActive(uint32 initialEntryPoint, PPCFun
  void PPCRecompiler_recompileAtAddress(uint32 address)
  {
  	cemu_assert_debug(ppcRecompilerInstanceData->ppcRecompilerDirectJumpTable[address / 4] == PPCRecompiler_leaveRecompilerCode_visited);
@@ -311,7 +333,7 @@ index 6125c7d..a06362f 100644
  
  	// get size
  	PPCFunctionBoundaryTracker funcBoundaries;
-@@ -451,9 +488,97 @@ void PPCRecompiler_recompileAtAddress(uint32 address)
+@@ -451,9 +497,97 @@ void PPCRecompiler_recompileAtAddress(uint32 address)
  std::thread s_threadRecompiler;
  std::atomic_bool s_recompilerThreadStopSignal{false};
  
@@ -409,7 +431,7 @@ index 6125c7d..a06362f 100644
  #if PPCREC_FORCE_SYNCHRONOUS_COMPILATION
  	return;
  #endif
-@@ -462,7 +587,13 @@ void PPCRecompiler_thread()
+@@ -462,7 +596,13 @@ void PPCRecompiler_thread()
  	{
          if(s_recompilerThreadStopSignal)
              return;
@@ -424,6 +446,15 @@ index 6125c7d..a06362f 100644
  		// asynchronous recompilation:
  		// 1) take address from queue
  		// 2) check if address is still marked as visited
+@@ -611,6 +751,8 @@ void PPCRecompiler_invalidateRange(uint32 startAddr, uint32 endAddr)
+ 		return;
+ 	if (startAddr >= PPC_REC_CODE_AREA_SIZE)
+ 		return;
++	if (startAddr <= 0x0675FFFFu && endAddr >= 0x06750000u)
++		cemuLog_log(LogType::Force, "[INVALIDATE-0675] start=0x{:08X} end=0x{:08X}", startAddr, endAddr);
+ 	cemu_assert_debug(endAddr >= startAddr);
+ 
+ 	PPCRecompilerState.recompilerSpinlock.lock();
 diff --git a/src/Cafe/HW/Espresso/Recompiler/PPCRecompilerIml.h b/src/Cafe/HW/Espresso/Recompiler/PPCRecompilerIml.h
 index bfb2aed..2f4d2a6 100644
 --- a/src/Cafe/HW/Espresso/Recompiler/PPCRecompilerIml.h
