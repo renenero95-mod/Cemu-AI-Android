@@ -15,18 +15,11 @@ jobs:
 
     - name: Clone Official SSimco Cemu Repo
       run: |
-        git clone --recursive -b android-port https://github.com/SSimco/Cemu.git Cemu
+        git clone --recursive -b android-port https://github.com/renenero95-mod/Cemu.git Cemu
 
-    - name: Apply AI Patch
+    - name: Apply AI Patch (SKIPPED - fork already contains all fixes)
       run: |
-        if [ -f patch.diff ]; then
-          echo "✅ Applicando la patch generata dall'AI..."
-          cd Cemu
-          git apply ../patch.diff
-          cd ..
-        else
-          echo "⚠️ Nessuna patch trovata, compilo il codice originale."
-        fi
+        echo "⏭️ Step skipped: build from renenero95-mod/Cemu fork (already patched)"
 
     - name: Modify Application ID
       run: |
