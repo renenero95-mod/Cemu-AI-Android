@@ -54,7 +54,7 @@ jobs:
         GRADLEW_FILE=$(find Cemu -name "gradlew" | head -n 1)
         cd $(dirname "$GRADLEW_FILE")
         chmod +x gradlew
-        ./gradlew assembleDebug
+        ./gradlew assembleRelease -Pandroid.injected.build.api=34 -DCMAKE_BUILD_TYPE=Release
 
     - name: Upload APK
       uses: actions/upload-artifact@v4
