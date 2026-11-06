@@ -33,7 +33,7 @@ jobs:
     - name: Install system dependencies
       run: |
         sudo apt update -qq
-        sudo apt install -y gettext mono-complete
+        sudo apt install -y gettext cmake ninja-build
 
     - name: Set up JDK 21
       uses: actions/setup-java@v4
