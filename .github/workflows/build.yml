@@ -47,8 +47,25 @@ jobs:
       - name: Build with Gradle
         run: |
           cd Cemu
-          sed -i 's/applicationId "info.cemu.cemu"/applicationId "com.cemu.aimod.debug"/' android/app/build.gradle.kts || sed -i 's/applicationId "info.cemu.cemu"/applicationId "com.cemu.aimod.debug"/' android/app/build.gradle
-          cd android
+          
+          # Trova e modifica l'applicationId (cerca in tutto il repo)
+          GRADLE_FILE=$(grep -rl 'info.cemu.cemu' --include="build.gradle*" . | head -n 1)
+          if [ -n "$GRADLE_FILE" ]; then
+            echo "Modifying applicationId in $GRADLE_FILE"
+            sed -i 's/info.cemu.cemu/com.cemu.aimod.debug/g' "$GRADLE_FILE"
+          else
+            echo "WARNING: applicationId not found. Skipping sed."
+          fi
+          
+          # Trova la posizione di gradlew e compila
+          GRADLEW_PATH=$(find . -name "gradlew" | head -n 1)
+          if [ -z "$GRADLEW_PATH" ]; then
+            echo "ERROR: gradlew not found!"
+            exit 1
+          fi
+          
+          echo "Found gradlew at $GRADLEW_PATH"
+          cd "$(dirname "$GRADLEW_PATH")"
           chmod +x gradlew
           ./gradlew assembleDebug
 
@@ -56,4 +73,4 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: Cemu-Android-PPC-Analyzer-${{ env.CEMU_SHA }}
-          path: Cemu/android/app/build/outputs/apk/debug/*.apk
+          path: Cemu/**/build/outputs/apk/debug/*.apk
