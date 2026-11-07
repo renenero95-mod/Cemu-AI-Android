@@ -1,61 +1,56 @@
-name: Build Cemu Android APK with AI Patch
-
+name: Build Cemu Android
 on:
-  push:
-    branches: [ "main" ]
   workflow_dispatch:
+    inputs:
+      cemu_ref:
+        description: 'Branch, tag o SHA di Cemu (default: android-port)'
+        required: true
+        default: 'android-port'
+        type: string
+  push:
+    branches: [ main ]
 
 jobs:
   build:
-    runs-on: ubuntu-24.04
-    
+    runs-on: ubuntu-latest
     steps:
-    - name: Checkout User Repo (to get patch.diff)
-      uses: actions/checkout@v4
+      - name: Checkout Android Build Repo
+        uses: actions/checkout@v4
 
-    - name: Clone Official SSimco Cemu Repo
-      run: |
-        git clone --recursive -b android-port https://github.com/renenero95-mod/Cemu.git Cemu
+      - name: Checkout Cemu Repo
+        env:
+          CEMU_REF: ${{ github.event.inputs.cemu_ref || 'android-port' }}
+        run: |
+          git clone --recursive -b android-port https://github.com/renenero95-mod/Cemu.git Cemu
+          cd Cemu
+          git checkout "$CEMU_REF"
+          git submodule update --init --recursive
+          echo "CEMU_SHA=$(git rev-parse HEAD)" >> $GITHUB_ENV
 
-    - name: Apply AI Patch (SKIPPED - fork already contains all fixes)
-      run: |
-        echo "⏭️ Step skipped: build from renenero95-mod/Cemu fork (already patched)"
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '21'
 
-    - name: Modify Application ID
-      run: |
-        BUILD_FILE=$(find Cemu -name "build.gradle.kts" -path "*/app/*" | head -n 1)
-        if [ -n "$BUILD_FILE" ]; then
-          sed -i 's/applicationId = ".*"/applicationId = "com.cemu.aimod"/g' "$BUILD_FILE"
-        else
-          echo "Attenzione: build.gradle.kts non trovato!"
-        fi
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
 
-    - name: Install system dependencies
-      run: |
-        sudo apt update -qq
-        sudo apt install -y gettext cmake ninja-build
+      - name: Setup NDK
+        run: |
+          echo "y" | sdkmanager --install "ndk;26.1.10909125"
+          echo "ANDROID_NDK_HOME=$ANDROID_SDK_ROOT/ndk/26.1.10909125" >> $GITHUB_ENV
 
-    - name: Set up JDK 21
-      uses: actions/setup-java@v4
-      with:
-        distribution: 'temurin'
-        java-version: '21'
+      - name: Build with Gradle
+        run: |
+          cd Cemu
+          sed -i 's/applicationId "info.cemu.cemu"/applicationId "com.cemu.aimod.debug"/' android/app/build.gradle.kts || sed -i 's/applicationId "info.cemu.cemu"/applicationId "com.cemu.aimod.debug"/' android/app/build.gradle
+          cd android
+          chmod +x gradlew
+          ./gradlew assembleDebug
 
-    - name: Setup Android SDK
-      uses: android-actions/setup-android@v4
-      with:
-        packages: 'platform-tools'
-
-    - name: Build APK with Gradle
-      run: |
-        GRADLEW_FILE=$(find Cemu -name "gradlew" | head -n 1)
-        cd $(dirname "$GRADLEW_FILE")
-        chmod +x gradlew
-        ./gradlew assembleDebug -Pandroid.injected.cmake.arguments="-DCMAKE_BUILD_TYPE=RelWithDebInfo"
-
-    - name: Upload APK
-      uses: actions/upload-artifact@v4
-      with:
-        name: Cemu-AI-Mod-APK
-        path: Cemu/**/build/outputs/apk/debug/*.apk
-
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: Cemu-Android-PPC-Analyzer-${{ env.CEMU_SHA }}
+          path: Cemu/android/app/build/outputs/apk/debug/*.apk
